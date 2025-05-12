@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rugs.fun House Edge Tracker</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      color: #e0e0e0;
+      background-color: #181818;
+      margin: 0;
+      padding: 0;
+    }
+    .dashboard {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto auto auto;
+      gap: 10px;
+      padding: 10px;
+      height: 100vh;
+    }
+    .card {
+      background-color: #222;
+      border-radius: 4px;
+      padding: 10px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      overflow: hidden;
+    }
+    .game-state, .price {
+      grid-column: span 1;
+    }
+    .house-position, .liquidity {
+      grid-column: span 1;
+    }
+    .price-chart {
+      grid-column: span 2;
+    }
+    .signals {
+      grid-column: span 2;
+    }
+    .trades {
+      grid-column: span 2;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .status-active {
+      color: #4CAF50;
+      font-weight: bold;
+    }
+    .status-rugged {
+      color: #F44336;
+      font-weight: bold;
+    }
+    .status-pending {
+      color: #FFC107;
+      font-weight: bold;
+    }
+    .price-value {
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #FFC107;
+    }
+    .house-positive {
+      color: #4CAF50;
+      font-weight: bold;
+    }
+    .house-negative {
+      color: #F44336;
+      font-weight: bold;
+    }
+    .house-neutral {
+      color: #9E9E9E;
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 1em;
+      text-transform: uppercase;
+      color: #9E9E9E;
+      border-bottom: 1px solid #333;
+      padding-bottom: 5px;
+    }
+    .trade-item {
+      padding: 3px 0;
+      border-bottom: 1px solid #333;
+    }
+    .trade-buy {
+      color: #4CAF50;
+    }
+    .trade-sell {
+      color: #F44336;
+    }
+    .signal-buy {
+      background-color: rgba(76, 175, 80, 0.2);
+      border-left: 4px solid #4CAF50;
+      padding: 10px;
+    }
+    .signal-sell {
+      background-color: rgba(244, 67, 54, 0.2);
+      border-left: 4px solid #F44336;
+      padding: 10px;
+    }
+    .signal-none {
+      background-color: rgba(158, 158, 158, 0.1);
+      border-left: 4px solid #9E9E9E;
+      padding: 10px;
+    }
+    .progress-bar {
+      height: 8px;
+      width: 100%;
+      background-color: #333;
+      border-radius: 4px;
+      margin: 5px 0;
+    }
+    .progress-fill-positive {
+      height: 100%;
+      background-color: #4CAF50;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+    .progress-fill-negative {
+      height: 100%;
+      background-color: #F44336;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+    .stats-button {
+      margin-top: 10px;
+      background-color: #333;
+      color: #e0e0e0;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .stats-button:hover {
+      background-color: #444;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+    }
+    .modal-content {
+      background-color: #222;
+      margin: 10% auto;
+      padding: 20px;
+      border-radius: 4px;
+      width: 80%;
+      max-width: 600px;
+    }
+    .close {
+      color: #999;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .close:hover {
+      color: #e0e0e0;
+    }
+    .prediction {
+      margin-top: 10px;
+      padding: 5px;
+      border-radius: 4px;
+      background-color: rgba(0, 119, 255, 0.2);
+      border-left: 4px solid #0077ff;
+    }
+    .correlation-stats {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+    .correlation-box {
+      flex: 1;
+      text-align: center;
+      padding: 5px;
+      border-radius: 4px;
+      margin: 0 5px;
+    }
+    .correlation-buy {
+      background-color: rgba(76, 175, 80, 0.1);
+    }
+    .correlation-sell {
+      background-color: rgba(244, 67, 54, 0.1);
+    }
+    .rug-risk {
+      margin-top: 5px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      display: inline-block;
+    }
+    .risk-high {
+      background-color: rgba(244, 67, 54, 0.2);
+      color: #F44336;
+    }
+    .risk-medium {
+      background-color: rgba(255, 193, 7, 0.2);
+      color: #FFC107;
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <div class="card game-state">
+      <h2>Game State</h2>
+      <div id="game-status" class="status-pending">PENDING</div>
+      <div id="game-id">ID: N/A</div>
+      <div id="game-tick">Tick: 0</div>
+      <div id="game-index">Index: 0</div>
+      <button id="stats-button" class="stats-button">View Stats</button>
+    </div>
+    
+    <div class="card price">
+      <h2>Price</h2>
+      <div id="current-price" class="price-value">1.0000x</div>
+      <div>Index Changes: <span id="index-changes">5-tick groups</span></div>
+    </div>
+    
+    <div class="card house-position">
+      <h2>House Position</h2>
+      <div>SOL: <span id="house-sol" class="house-neutral">0.000000</span></div>
+      <div>Edge: <span id="house-edge" class="house-neutral">EVEN</span></div>
+    </div>
+    
+    <div class="card liquidity">
+      <h2>Liquidity</h2>
+      <div>Players: <span id="liquidity-players">0</span></div>
+      <div>Total Value: <span id="liquidity-value">0.000</span> SOL</div>
+      <div id="rug-risk-container"></div>
+    </div>
+    
+    <div class="card price-chart">
+      <h2>Price History</h2>
+      <canvas id="price-chart"></canvas>
+    </div>
+    
+    <div class="card signals">
+      <h2>Signals</h2>
+      <div>House Position: <span id="house-position-percent">0.0%</span></div>
+      <div class="progress-bar">
+        <div id="house-bar" class="progress-fill-positive" style="width: 0%"></div>
+      </div>
+      
+      <div>Price Trend: <span id="price-trend-percent">0.0%</span></div>
+      <div class="progress-bar">
+        <div id="price-bar" class="progress-fill-positive" style="width: 0%"></div>
+      </div>
+      
+      <div id="signal-container" class="signal-none">
+        <div id="signal-text">No strong signal.</div>
+      </div>
+      
+      <div id="prediction-container"></div>
+      
+      <div class="correlation-stats">
+        <div class="correlation-box correlation-buy">
+          <div>Buy Predictions</div>
+          <div id="buy-stats">0/0 (0%)</div>
+        </div>
+        <div class="correlation-box correlation-sell">
+          <div>Sell Predictions</div>
+          <div id="sell-stats">0/0 (0%)</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card trades">
+      <h2>Recent Trades</h2>
+      <div id="trades-container"></div>
+    </div>
+  </div>
+  
+  <div id="stats-modal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Data Collection Summary</h2>
+      <div id="stats-content"></div>
+      <button id="reset-stats" class="stats-button" style="margin-top: 20px;">Reset Stats</button>
+    </div>
+  </div>
+  
+  <script>
+    const socket = io();
+    let priceChart;
+    let priceData = Array(50).fill(1.0);
+    
+    // Initialize Chart.js
+    function initChart() {
+      const ctx = document.getElementById('price-chart').getContext('2d');
+      priceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: Array(50).fill('').map((_, i) => i),
+          datasets: [{
+            label: 'Price',
+            data: priceData,
+            borderColor: '#FFC107',
+            borderWidth: 2,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              display: false
+            },
+            y: {
+              beginAtZero: false,
+              grid: {
+                color: '#333'
+              },
+              ticks: {
+                color: '#999'
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
+          }
+        }
+      });
+    }
+    
+    // Update the dashboard with new state
+    socket.on('tracker-update', (state) => {
+      // Update Game State
+      const gameStatus = document.getElementById('game-status');
+      gameStatus.textContent = state.gameState.gameStatus;
+      gameStatus.className = 'status-' + state.gameState.gameStatus.toLowerCase();
+      
+      document.getElementById('game-id').textContent = 'ID: ' + (state.gameState.currentGameId || 'N/A');
+      document.getElementById('game-tick').textContent = 'Tick: ' + state.gameState.currentTick;
+      document.getElementById('game-index').textContent = 'Index: ' + state.gameState.currentIndex;
+      
+      // Update Price
+      document.getElementById('current-price').textContent = state.gameState.currentPrice.toFixed(4) + 'x';
+      
+      // Update House Position
+      const houseSol = document.getElementById('house-sol');
+      houseSol.textContent = (state.housePosition.position >= 0 ? '+' : '') + state.housePosition.position.toFixed(6);
+      houseSol.className = state.housePosition.winning ? 'house-positive' : (state.housePosition.losing ? 'house-negative' : 'house-neutral');
+      
+      const houseEdge = document.getElementById('house-edge');
+      houseEdge.textContent = state.housePosition.winning ? 'WINNING' : (state.housePosition.losing ? 'LOSING' : 'EVEN');
+      houseEdge.className = state.housePosition.winning ? 'house-positive' : (state.housePosition.losing ? 'house-negative' : 'house-neutral');
+      
+      // Update Liquidity
+      document.getElementById('liquidity-players').textContent = state.liquidity.players;
+      document.getElementById('liquidity-value').textContent = state.liquidity.totalValue.toFixed(3);
+      
+      // Update Rug Risk
+      const rugRiskContainer = document.getElementById('rug-risk-container');
+      rugRiskContainer.innerHTML = '';
+      if (state.maxLiability > 0.05) {
+        const rugRiskPercent = Math.min(100, (state.liquidity.totalValue / state.maxLiability) * 100);
+        if (rugRiskPercent > 70) {
+          rugRiskContainer.innerHTML = '<div class="rug-risk risk-high">Rug Risk: ' + rugRiskPercent.toFixed(0) + '%</div>';
+        } else if (rugRiskPercent > 40) {
+          rugRiskContainer.innerHTML = '<div class="rug-risk risk-medium">Rug Risk: ' + rugRiskPercent.toFixed(0) + '%</div>';
+        }
+      }
+      
+      // Update Price Chart
+      priceData = state.priceHistory;
+      priceChart.data.datasets[0].data = priceData;
+      priceChart.update();
+      
+      // Update Signals
+      const housePosPerc = state.signals.housePositionPercent || 0;
+      const priceTrendPerc = state.signals.priceTrendPercent || 0;
+      
+      document.getElementById('house-position-percent').textContent = (housePosPerc >= 0 ? '+' : '') + housePosPerc.toFixed(1) + '%';
+      document.getElementById('price-trend-percent').textContent = (priceTrendPerc >= 0 ? '+' : '') + priceTrendPerc.toFixed(1) + '%';
+      
+      const houseBar = document.getElementById('house-bar');
+      houseBar.style.width = Math.min(100, Math.abs(housePosPerc)) + '%';
+      houseBar.className = housePosPerc >= 0 ? 'progress-fill-positive' : 'progress-fill-negative';
+      
+      const priceBar = document.getElementById('price-bar');
+      priceBar.style.width = Math.min(100, Math.abs(priceTrendPerc)) + '%';
+      priceBar.className = priceTrendPerc >= 0 ? 'progress-fill-positive' : 'progress-fill-negative';
+      
+      const signalContainer = document.getElementById('signal-container');
+      const signalText = document.getElementById('signal-text');
+      
+      if (state.signals.buySignal) {
+        signalContainer.className = 'signal-buy';
+        signalText.textContent = state.signals.buySignal.message;
+      } else if (state.signals.sellSignal) {
+        signalContainer.className = 'signal-sell';
+        signalText.textContent = state.signals.sellSignal.message;
+      } else {
+        signalContainer.className = 'signal-none';
+        signalText.textContent = 'No strong signal.';
+      }
+      
+      // Update Active Prediction
+      const predictionContainer = document.getElementById('prediction-container');
+      predictionContainer.innerHTML = '';
+      if (state.activePrediction) {
+        const pred = state.activePrediction;
+        let predHtml = '<div class="prediction">';
+        predHtml += 'Active Prediction: ' + pred.type.toUpperCase() + ' @ ' + pred.entryPrice.toFixed(3) + 'x (Tick ' + pred.entryTick + ')';
+        if (pred.type === 'buy') {
+          predHtml += ' Target: ≥' + pred.targetPriceUp.toFixed(3) + 'x';
+        } else {
+          predHtml += ' Target: ≤' + pred.targetPriceDown.toFixed(3) + 'x';
+        }
+        predHtml += '</div>';
+        predictionContainer.innerHTML = predHtml;
+      }
+      
+      // Update Correlation Stats
+      const buySuccessRate = state.correlationStats.buyAttempts > 0 ? 
+        (state.correlationStats.buySuccess / state.correlationStats.buyAttempts * 100).toFixed(0) : '0';
+      const sellSuccessRate = state.correlationStats.sellAttempts > 0 ? 
+        (state.correlationStats.sellSuccess / state.correlationStats.sellAttempts * 100).toFixed(0) : '0';
+      
+      document.getElementById('buy-stats').textContent = state.correlationStats.buySuccess + '/' + state.correlationStats.buyAttempts + ' (' + buySuccessRate + '%)';
+      document.getElementById('sell-stats').textContent = state.correlationStats.sellSuccess + '/' + state.correlationStats.sellAttempts + ' (' + sellSuccessRate + '%)';
+      
+      // Update Trades
+      const tradesContainer = document.getElementById('trades-container');
+      tradesContainer.innerHTML = '';
+      state.recentTrades.forEach(trade => {
+        const tradeEl = document.createElement('div');
+        tradeEl.className = 'trade-item';
+        
+        if (trade.includes('BUY')) {
+          tradeEl.classList.add('trade-buy');
+        } else if (trade.includes('SELL')) {
+          tradeEl.classList.add('trade-sell');
+        }
+        
+        tradeEl.textContent = trade
+          .replace('{green-fg}', '')
+          .replace('{red-fg}', '')
+          .replace('{/}', '');
+        
+        tradesContainer.appendChild(tradeEl);
+      });
+    });
+    
+    // Fetch and display statistics
+    document.getElementById('stats-button').addEventListener('click', () => {
+      socket.emit('get-stats', {}, (stats) => {
+        const statsContent = document.getElementById('stats-content');
+        statsContent.innerHTML = `
+          <p><strong>Game Stats:</strong></p>
+          <p>Total Games Tracked: ${stats.gameCount}</p>
+          <p>Games Ending in Rug Pull: ${stats.rugPullCount}</p>
+          
+          <p><strong>Theory Validation:</strong></p>
+          <p>Buy Signal Accuracy: ${stats.buySignals.rate}% (${stats.buySignals.success}/${stats.buySignals.attempts})</p>
+          <p>Sell Signal Accuracy: ${stats.sellSignals.rate}% (${stats.sellSignals.success}/${stats.sellSignals.attempts})</p>
+          
+          <p><strong>Recent Game Results:</strong></p>
+          <div>
+            ${stats.recentGames.map(g => {
+              const result = g.finalHousePosition >= 0 ? '<span style="color: #4CAF50;">WIN</span>' : '<span style="color: #F44336;">LOSS</span>';
+              return `<p>Game ${g.gameId.substring(0,8)}: House ${result} ${Math.abs(g.finalHousePosition).toFixed(6)} SOL - ${g.status}</p>`;
+            }).join('')}
+          </div>
+        `;
+        
+        document.getElementById('stats-modal').style.display = 'block';
+      });
+    });
+    
+    // Close Modal
+    document.querySelector('.close').addEventListener('click', () => {
+      document.getElementById('stats-modal').style.display = 'none';
+    });
+    
+    // Reset Stats
+    document.getElementById('reset-stats').addEventListener('click', () => {
+      socket.emit('reset-stats');
+      document.getElementById('stats-modal').style.display = 'none';
+    });
+    
+    // Close modal when clicking outside
+    window.addEventListener('click', (event) => {
+      if (event.target === document.getElementById('stats-modal')) {
+        document.getElementById('stats-modal').style.display = 'none';
+      }
+    });
+    
+    // Handle stats reset
+    socket.on('stats-reset', () => {
+      alert('Statistics have been reset.');
+    });
+    
+    // Initialize on page load
+    window.addEventListener('load', initChart);
+  </script>
+</body>
+</html>

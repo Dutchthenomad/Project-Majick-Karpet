@@ -1,0 +1,13 @@
+{
+  "appName": "MajickKarpet",
+  "version": "0.0.1",
+  "logging": {
+    "level": "info",
+    "logToFile": true,
+    "logDirectory": "logs",
+    "logFile": "app.log"
+  },
+  "eventBus": {
+    "debug": false
+  }
+} 

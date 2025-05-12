@@ -1,0 +1,23 @@
+{
+  "name": "rugs-house-edge-tracker",
+  "version": "1.0.0",
+  "description": "Tracker for analyzing house edge in rugs.fun game",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node main.js",
+    "track": "node tracker_only.js",
+    "dashboard": "node house_dashboard.js",
+    "simple": "node simple_dashboard.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "express": "^4.21.2",
+    "inquirer": "^9.2.12",
+    "puppeteer": "^24.8.2",
+    "socket.io": "^4.8.1",
+    "winston": "^3.17.0"
+  }
+}
