@@ -9,5 +9,24 @@
   },
   "eventBus": {
     "debug": false
+  },
+  "browser": {
+    "executablePath": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    "userDataDir": "./user_data",
+    "remoteDebuggingUrl": "http://127.0.0.1:9222",
+    "headless": false,
+    "defaultViewport": {
+      "width": 1920,
+      "height": 1080
+    },
+    "protocolTimeout": 60000,
+    "launchArgs": [
+      "--remote-debugging-port=9222",
+      "--window-size=1920,1080"
+    ]
+  },
+  "webSocketClient": {
+    "targetUrlPattern": "rugs.fun",
+    "retryConnectionDelayMs": 5000
   }
 } 

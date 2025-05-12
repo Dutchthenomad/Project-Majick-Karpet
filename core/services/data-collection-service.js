@@ -1,233 +1,116 @@
-const ServiceBase = require('./service-base');
-const fs = require('fs').promises;
+const fs = require('fs');
 const path = require('path');
+const logger = require('../../utils/logger');
+const eventBus = require('../events/event-bus');
+const { getConfig } = require('../../config/config-service');
+
+// Consider making the filename configurable if needed
+const RAW_DATA_FILENAME = 'raw_websocket_data.jsonl';
 
 /**
- * Service for collecting and storing game data
+ * @class DataCollectionService
+ * @description Collects raw WebSocket frames (sent and received) and logs them 
+ *              to a file in JSON Lines (JSONL) format.
  */
-class DataCollectionService extends ServiceBase {
-  constructor(options = {}) {
-    super(options);
-    
-    this.dataDir = options.dataDir || path.join(process.cwd(), 'data');
-    this.tournamentFile = options.tournamentFile || path.join(this.dataDir, 'tournament_data.json');
-    this.gameHistoryFile = options.gameHistoryFile || path.join(this.dataDir, 'game_history.json');
-    this.tradesFile = options.tradesFile || path.join(this.dataDir, 'trades_log.jsonl'); // Using JSONL for trades
+class DataCollectionService {
+    constructor() {
+        this.logDirectory = path.resolve(__dirname, '..', '..', getConfig('logging.logDirectory', 'logs'));
+        this.logFilePath = path.join(this.logDirectory, RAW_DATA_FILENAME);
+        this.logStream = null;
+        this.isListening = false;
 
-    this.buffers = {
-      games: [],
-      trades: [],
-      leaderboardUpdates: [] // Renamed for clarity
-    };
-    
-    this.flushIntervalMs = options.flushIntervalMs || 60000; // 1 minute
-    this.flushTimer = null;
-  }
-  
-  setupEventListeners() {
-    // Listen for game state updates (primarily for game end)
-    this.eventBus.on('game:stateUpdate', this.handleGameStateUpdate.bind(this));
-    
-    // Listen for trades
-    this.eventBus.on('game:trade', this.handleTradeEvent.bind(this));
-    
-    // Listen for leaderboard updates
-    this.eventBus.on('game:leaderboardUpdate', this.handleLeaderboardUpdate.bind(this));
-    
-    // Listen for rug events (game end)
-    this.eventBus.on('game:rugged', this.handleRugEvent.bind(this));
+        this._handleWebSocketFrame = this._handleWebSocketFrame.bind(this); // Bind handler
 
-    // Listen for phase changes to detect new games
-    this.eventBus.on('game:phaseChange', this.handlePhaseChange.bind(this));
-  }
-
-  handlePhaseChange(phaseData) {
-    if (phaseData.currentPhase === 'presale') {
-      // A new game is starting, log the end of the previous one if it wasn't rugged
-      const lastGameInBuffer = this.buffers.games.length > 0 ? this.buffers.games[this.buffers.games.length - 1] : null;
-      if (lastGameInBuffer && lastGameInBuffer.gameId === phaseData.previousGameId && !lastGameInBuffer.isGameEnd) {
-        // This means the previous game ended normally (not rugged)
-        this.buffers.games.push({
-          gameId: phaseData.previousGameId,
-          timestamp: Date.now(),
-          finalPrice: this.engine.state.gameState?.price || null, // Get last known price
-          rugged: false, // Game ended normally
-          isGameEnd: true,
-        });
-      }
+        logger.info('DataCollectionService initialized.');
+        logger.info(`Raw data will be logged to: ${this.logFilePath}`);
     }
-  }
-  
-  /**
-   * Handle game state updates - primarily to capture non-rugged game ends
-   * @param {Object} gameState 
-   */
-  handleGameStateUpdate(gameState) {
-    // We don't store every tick here, only specific events like game end
-    // Game end is now primarily handled by handleRugEvent or handlePhaseChange
-  }
-  
-  /**
-   * Handle trade events
-   * @param {Object} trade 
-   */
-  handleTradeEvent(trade) {
-    this.buffers.trades.push({
-      ...trade,
-      loggedAt: new Date().toISOString() // Add a log timestamp
-    });
-  }
-  
-  /**
-   * Handle leaderboard updates
-   * @param {Object} data 
-   */
-  handleLeaderboardUpdate(data) {
-    // Extract top players for tournament tracking
-    const topPlayers = data.leaderboard
-      .slice(0, 10) // Top 10 players
-      .map(player => ({
-        id: player.id,
-        username: player.username,
-        level: player.level,
-        pnl: player.pnl,
-        position: player.position
-      }));
-    
-    this.buffers.leaderboardUpdates.push({
-      timestamp: data.timestamp,
-      gameId: data.gameId,
-      topPlayers
-    });
-  }
-  
-  /**
-   * Handle rug events (marks game end)
-   * @param {Object} rugEvent 
-   */
-  handleRugEvent(rugEvent) {
-    // Store final game outcome
-    this.buffers.games.push({
-      gameId: rugEvent.gameId,
-      timestamp: rugEvent.timestamp,
-      finalPrice: rugEvent.finalPrice,
-      rugged: true,
-      isGameEnd: true // Explicitly mark as game end
-    });
-    
-    // Since this is an important event, consider an immediate flush or shorter interval
-    // For now, relies on periodic flush or manual flush on stop
-  }
-  
-  /**
-   * Ensure data directory exists
-   */
-  async ensureDataDir() {
-    try {
-      await fs.mkdir(this.dataDir, { recursive: true });
-    } catch (error) {
-      console.error('Failed to create data directory:', error);
-      // Don't throw, allow service to continue, but log error
-    }
-  }
-  
-  /**
-   * Flush buffered data to disk
-   */
-  async flushData() {
-    console.log('[DataCollectionService] Flushing data...');
-    await this.ensureDataDir(); // Ensure directory exists every flush
-    
-    try {
-      // Process and save tournament data
-      if (this.buffers.leaderboardUpdates.length > 0) {
-        let tournamentData = {};
+
+    /**
+     * Starts listening for WebSocket frame events and opens the log file stream.
+     */
+    startListening() {
+        if (this.isListening) {
+            logger.warn('DataCollectionService is already listening.');
+            return;
+        }
+
+        logger.info('DataCollectionService starting to listen for WebSocket frames...');
         try {
-          const fileContent = await fs.readFile(this.tournamentFile, 'utf8');
-          tournamentData = JSON.parse(fileContent);
+            // Ensure log directory exists (although logger likely created it)
+            if (!fs.existsSync(this.logDirectory)) {
+                fs.mkdirSync(this.logDirectory, { recursive: true });
+            }
+            // Open stream in append mode
+            this.logStream = fs.createWriteStream(this.logFilePath, { flags: 'a' });
+            this.logStream.on('error', (err) => {
+                logger.error(`DataCollectionService: Error writing to raw data log file: ${err.message}`, err);
+                // Attempt to close stream on error
+                this.stopListening(); 
+            });
+            logger.info(`Opened raw data log file for appending: ${this.logFilePath}`);
+
+            // Subscribe to both sent and received frames
+            eventBus.on('websocket:frameSent', this._handleWebSocketFrame);
+            eventBus.on('websocket:frameReceived', this._handleWebSocketFrame);
+            this.isListening = true;
+
         } catch (error) {
-          // File might not exist yet or is invalid JSON
-          console.log('[DataCollectionService] Tournament data file not found or invalid, creating new.');
+            logger.error('DataCollectionService: Failed to start listening or open log file:', error);
+            this.logStream = null; // Ensure stream is null on failure
+            this.isListening = false;
         }
-        
-        for (const update of this.buffers.leaderboardUpdates) {
-          const dateKey = new Date(update.timestamp).toISOString().split('T')[0];
-          if (!tournamentData[dateKey]) {
-            tournamentData[dateKey] = [];
-          }
-          tournamentData[dateKey].push(update);
+    }
+
+    /**
+     * Stops listening for events and closes the log file stream.
+     */
+    stopListening() {
+        if (!this.isListening) {
+            // logger.debug('DataCollectionService is already stopped.');
+            return;
         }
-        
-        await fs.writeFile(this.tournamentFile, JSON.stringify(tournamentData, null, 2), 'utf8');
-        this.buffers.leaderboardUpdates = []; // Clear buffer
-        console.log('[DataCollectionService] Tournament data flushed.');
-      }
-      
-      // Process and save game history (game end events)
-      if (this.buffers.games.length > 0) {
-        let gameHistory = [];
+        logger.info('DataCollectionService stopping listening...');
+
+        // Unsubscribe from events
+        eventBus.off('websocket:frameSent', this._handleWebSocketFrame);
+        eventBus.off('websocket:frameReceived', this._handleWebSocketFrame);
+
+        // Close the file stream
+        if (this.logStream) {
+            this.logStream.end(() => {
+                logger.info(`Closed raw data log file: ${this.logFilePath}`);
+            });
+            this.logStream = null;
+        } else {
+             logger.info(`Raw data log file was already closed or not opened: ${this.logFilePath}`);
+        }
+        this.isListening = false;
+    }
+
+    /**
+     * Handles incoming WebSocket frame data and writes it to the log file.
+     * @param {object} frameData - The frame data object from the event bus.
+     * @param {string} frameData.type - 'sent' or 'received'.
+     * @param {string} frameData.requestId - CDP WebSocket request ID.
+     * @param {number} frameData.timestamp - Timestamp in ms.
+     * @param {string} frameData.payload - The raw payload string.
+     * @private
+     */
+    _handleWebSocketFrame(frameData) {
+        if (!this.logStream) {
+            logger.warn('DataCollectionService: Cannot log frame, log stream is not open.');
+            return;
+        }
         try {
-          const fileContent = await fs.readFile(this.gameHistoryFile, 'utf8');
-          gameHistory = JSON.parse(fileContent);
-          if (!Array.isArray(gameHistory)) gameHistory = []; // Ensure it's an array
+            const logEntry = JSON.stringify(frameData);
+            this.logStream.write(logEntry + '\n'); // Append newline for JSONL format
         } catch (error) {
-          console.log('[DataCollectionService] Game history file not found or invalid, creating new.');
+            // Should not happen with frameData structure, but good to have
+            logger.error('DataCollectionService: Error serializing frame data for logging:', error);
         }
-        
-        // Add only game end events
-        const gameEndEvents = this.buffers.games.filter(g => g.isGameEnd);
-        gameHistory.push(...gameEndEvents);
-        
-        // Sort by timestamp and keep unique by gameId (latest entry wins for a gameId)
-        const uniqueGames = Array.from(new Map(gameHistory.map(item => [item.gameId, item])).values())
-                               .sort((a, b) => b.timestamp - a.timestamp);
-
-        await fs.writeFile(this.gameHistoryFile, JSON.stringify(uniqueGames, null, 2), 'utf8');
-        // Clear only processed game end events, keep ongoing game ticks if any (though not stored by this version)
-        this.buffers.games = this.buffers.games.filter(g => !g.isGameEnd); 
-        console.log('[DataCollectionService] Game history flushed.');
-      }
-
-      // Process and save trades (append to JSONL file)
-      if (this.buffers.trades.length > 0) {
-        const tradesToAppend = this.buffers.trades.map(trade => JSON.stringify(trade)).join('\n') + '\n';
-        await fs.appendFile(this.tradesFile, tradesToAppend, 'utf8');
-        this.buffers.trades = []; // Clear buffer
-        console.log('[DataCollectionService] Trades flushed.');
-      }
-
-    } catch (error) {
-      console.error('[DataCollectionService] Error flushing data:', error);
     }
-  }
-  
-  /**
-   * Start the data collection service
-   */
-  async start() {
-    if (this.flushTimer) {
-      console.warn('[DataCollectionService] Already started.');
-      return;
-    }
-    await this.ensureDataDir();
-    this.flushTimer = setInterval(() => {
-      this.flushData();
-    }, this.flushIntervalMs);
-    console.log(`[DataCollectionService] Started. Flushing data every ${this.flushIntervalMs / 1000} seconds.`);
-  }
-  
-  /**
-   * Stop the data collection service
-   */
-  async stop() {
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
-    }
-    // Perform a final flush on stop
-    await this.flushData();
-    console.log('[DataCollectionService] Stopped and performed final data flush.');
-  }
 }
 
-module.exports = DataCollectionService; 
+// Export a single instance (Singleton pattern)
+const instance = new DataCollectionService();
+module.exports = instance; 

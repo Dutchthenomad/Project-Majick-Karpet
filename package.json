@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Tracker for analyzing house edge in rugs.fun game",
   "main": "main.js",
-  "type": "module",
   "scripts": {
     "start": "node main.js",
     "track": "node tracker_only.js",
