@@ -89,23 +89,27 @@ class DataCollectionService {
 
     /**
      * Handles incoming WebSocket frame data and writes it to the log file.
-     * @param {object} frameData - The frame data object from the event bus.
-     * @param {string} frameData.type - 'sent' or 'received'.
-     * @param {string} frameData.requestId - CDP WebSocket request ID.
-     * @param {number} frameData.timestamp - Timestamp in ms.
      * @param {string} frameData.payload - The raw payload string.
      * @private
      */
-    _handleWebSocketFrame(frameData) {
+    _handleWebSocketFrame(eventPayload) {
         if (!this.logStream) {
             logger.warn('DataCollectionService: Cannot log frame, log stream is not open.');
             return;
         }
+
+        const frameToLog = eventPayload.frame;
+
+        if (!frameToLog) {
+            logger.warn('DataCollectionService: Received WebSocket frame event without frame data in payload.', eventPayload);
+            return;
+        }
+
         try {
-            const logEntry = JSON.stringify(frameData);
+            const logEntry = JSON.stringify(frameToLog);
             this.logStream.write(logEntry + '\n'); // Append newline for JSONL format
         } catch (error) {
-            // Should not happen with frameData structure, but good to have
+            // Should not happen with frameToLog structure, but good to have
             logger.error('DataCollectionService: Error serializing frame data for logging:', error);
         }
     }

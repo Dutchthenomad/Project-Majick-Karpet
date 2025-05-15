@@ -25,8 +25,38 @@
       "--window-size=1920,1080"
     ]
   },
+  "riskManagement": {
+    "globalLimits": {
+      "maxTotalExposureSOL": 1.0,
+      "maxConcurrentTradesGlobal": 20,
+      "globalMaxBuyAmountSOL": 0.2
+    }
+  },
   "webSocketClient": {
     "targetUrlPattern": "rugs.fun",
     "retryConnectionDelayMs": 5000
-  }
+  },
+  "strategies": [
+    {
+      "id": "simBotUser1Fixed",
+      "name": "SimpleFixedTickTraderStrategy",
+      "modulePath": "./strategies/simple-fixed-tick-trader-strategy.js",
+      "enabled": true,
+      "config": {
+        "presaleBuyAmount": 0.001,
+        "tickBuyAmount": 0.001,
+        "buyTickModulus": 20,
+        "buyTickOffset": 10,
+        "sellTickModulus": 20,
+        "sellTickOffset": 0,
+        "sellPercentage": 100,
+        "riskConfig": {
+          "maxBuyAmountSOL": 0.0011,
+          "maxOpenTradesPerGame": 5,
+          "maxStrategyExposureSOL": 0.01,
+          "minRequiredSafeTickCount": 5
+        }
+      }
+    }
+  ]
 } 

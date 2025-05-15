@@ -22,13 +22,30 @@ try {
     // Potentially disable file logging if directory creation fails
 }
 
+// --- Constants for simBotUser1 highlighting ---
+const SIM_BOT_USER_ID = "simBotUser1";
+const BRIGHT_MAGENTA = '\x1b[95m';
+const RESET_COLOR = '\x1b[0m';
+
+// --- Custom Winston format to colorize simBotUser1 mentions in messages ---
+const colorizeSimBotFormat = winston.format(info => {
+  if (typeof info.message === 'string' && info.message.includes(SIM_BOT_USER_ID)) {
+    const coloredSimBot = `${BRIGHT_MAGENTA}${SIM_BOT_USER_ID}${RESET_COLOR}`;
+    // Replace all occurrences of SIM_BOT_USER_ID with its colored version
+    // Using split/join to handle multiple occurrences safely
+    info.message = info.message.split(SIM_BOT_USER_ID).join(coloredSimBot);
+  }
+  return info;
+});
+
 // --- Winston Transports Configuration ---
 const transports = [
     // Console Transport
     new winston.transports.Console({
         format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+            winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), // Timestamp first
+            winston.format.colorize(), // Standard level colorization (e.g., info, warn, error)
+            colorizeSimBotFormat(),    // Custom format to colorize "simBotUser1" in the message
             winston.format.printf(info => `${info.timestamp} [${info.level}]: ${info.message}`)
         ),
     }),

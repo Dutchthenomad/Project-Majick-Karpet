@@ -67,31 +67,55 @@ class WebSocketClient {
             // Listen for WebSocket frames
             this.cdpSession.on('Network.webSocketFrameSent', ({ requestId, timestamp, response }) => {
                 eventBus.emit('websocket:frameSent', { 
-                    type: 'sent',
-                    requestId,
-                    timestamp: timestamp * 1000, // Convert to ms
-                    payload: response.payloadData 
+                    frame: {
+                        type: 'sent',
+                        requestId,
+                        originalTimestamp: timestamp * 1000, // Convert to ms, rename
+                        data: response.payloadData // Rename payload to data
+                    },
+                    category: 'network_ws',
+                    priority: 'low'
                 });
             });
 
             this.cdpSession.on('Network.webSocketFrameReceived', ({ requestId, timestamp, response }) => {
                 eventBus.emit('websocket:frameReceived', { 
-                    type: 'received',
-                    requestId, 
-                    timestamp: timestamp * 1000, // Convert to ms
-                    payload: response.payloadData
+                    frame: {
+                        type: 'received',
+                        requestId, 
+                        originalTimestamp: timestamp * 1000, // Convert to ms, rename
+                        data: response.payloadData // Rename payload to data
+                    },
+                    category: 'network_ws',
+                    priority: 'normal'
                 });
             });
             
             this.cdpSession.on('Network.webSocketClosed', ({ requestId, timestamp }) => {
                 logger.warn(`WebSocketClient: WebSocket connection closed (ID: ${requestId})`);
-                eventBus.emit('websocket:closed', { requestId, timestamp: timestamp * 1000 });
+                eventBus.emit('websocket:closed', {
+                    connection: {
+                        requestId,
+                        originalTimestamp: timestamp * 1000,
+                        status: 'closed' 
+                    },
+                    category: 'network_status',
+                    priority: 'normal'
+                });
                 // Potentially handle reconnection logic or state change here if the specific WS closes
             });
 
             this.cdpSession.on('Network.webSocketCreated', ({ url, requestId }) => {
                 logger.info(`WebSocketClient: WebSocket connection created to ${url} (ID: ${requestId})`);
-                eventBus.emit('websocket:created', { url, requestId });
+                eventBus.emit('websocket:created', {
+                    connection: {
+                        url,
+                        requestId,
+                        status: 'created'
+                    },
+                    category: 'network_status',
+                    priority: 'normal'
+                });
             });
 
             // Handle CDP session detachment
@@ -104,7 +128,11 @@ class WebSocketClient {
                 this.isConnected = false;
                 this.cdpSession = null;
                 this.targetPage = null;
-                eventBus.emit('websocket:disconnected');
+                eventBus.emit('websocket:disconnected', {
+                    statusDetails: { reason: 'CDP session disconnected' },
+                    category: 'network_status',
+                    priority: 'high'
+                });
                 logger.info(`Will attempt to re-establish WebSocket connection in ${this.config.retryDelay / 1000}s.`);
                 this._scheduleRetry();
             });
@@ -112,7 +140,11 @@ class WebSocketClient {
             this.isConnected = true;
             this.isConnecting = false;
             logger.info('WebSocketClient: Successfully connected and listening for WebSocket frames.');
-            eventBus.emit('websocket:connected');
+            eventBus.emit('websocket:connected', {
+                statusDetails: { message: 'WebSocketClient successfully connected' },
+                category: 'network_status',
+                priority: 'high'
+            });
             if (this.retryTimeoutId) {
                 clearTimeout(this.retryTimeoutId);
                 this.retryTimeoutId = null;
@@ -133,6 +165,12 @@ class WebSocketClient {
             this.targetPage = null;
             logger.info(`Will retry WebSocket connection in ${this.config.retryDelay / 1000}s.`);
             this._scheduleRetry();
+            this.isConnected = false;
+            eventBus.emit('websocket:disconnected', {
+                statusDetails: { reason: 'Client initiated disconnect from disconnect() method' },
+                category: 'network_status',
+                priority: 'high'
+            });
         }
     }
 
@@ -170,7 +208,11 @@ class WebSocketClient {
             this.cdpSession = null;
             this.targetPage = null;
             this.isConnected = false;
-            eventBus.emit('websocket:disconnected');
+            eventBus.emit('websocket:disconnected', {
+                statusDetails: { reason: 'Client initiated disconnect from disconnect() method' },
+                category: 'network_status',
+                priority: 'high'
+            });
         }
     }
 

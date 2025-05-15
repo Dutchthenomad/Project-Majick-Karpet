@@ -15,6 +15,7 @@
     "blessed": "^0.1.81",
     "express": "^4.21.2",
     "inquirer": "^9.2.12",
+    "joi": "^17.13.3",
     "puppeteer": "^24.8.2",
     "socket.io": "^4.8.1",
     "winston": "^3.17.0"
