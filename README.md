@@ -2,6 +2,10 @@
 
 ![Majick Karpet Logo](./assets/rugs-dot-bot-logo1.png)
 
+# Majick Karpet - Rugs.fun Game Analytics Bot
+
+![Majick Karpet Logo](./assets/rugs-dot-bot-logo1.png)
+
 ## Description
 
 Majick Karpet is a Node.js application designed to connect to the `rugs.fun` game, monitor its WebSocket communications, parse game events, track player state, manage risk, simulate trading strategies, and provide analytics on game dynamics. The ultimate goal is to understand game mechanics, player behavior, and develop automated trading strategies.
@@ -396,6 +400,11 @@ _(Detailed CREATE TABLE statements as previously outlined will be implemented in
     *   Build the initial `BacktestEngine` capable of replaying a single game's price history and basic events for one strategy.
 
 ---
+
+> **Collaboration Note:**
+> For optimal results, all collaborators—including agentic AI assistants—should consult `PROJECT_MEMORY.md` for a concise summary of the current architecture, priorities, and context.
+
+*This README will be updated as the project progresses.* 
 
 > **Collaboration Note:**
 > For optimal results, all collaborators—including agentic AI assistants—should consult `PROJECT_MEMORY.md` for a concise summary of the current architecture, priorities, and context.
