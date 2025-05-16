@@ -148,10 +148,15 @@ class StrategyBase {
      */
     _createInitialGameState(gameId) {
         // Example, to be overridden by specific strategies:
-        this.logger.warn(`Strategy ${this.strategyId}: _createInitialGameState not overridden. Game ${gameId} will have empty state.`);
+        this.logger.debug(`Strategy ${this.strategyId}: _createInitialGameState for game ${gameId}.`);
         return {
+            gameId: gameId, // For convenience if needed within state object itself
             // strategySpecificField: null,
             // lastActionTick: -1,
+            tradesAttempted: 0,
+            tradesExecuted: 0,
+            tradesRejectedByRisk: 0,
+            // Strategy-specific state fields would go here
         };
     }
     
@@ -299,15 +304,46 @@ class StrategyBase {
      * @returns {Promise<void>}
      */
     async onGameRugged(payload) {
-        this.logger.info(`Strategy ${this.strategyId}: onGameRugged hook for game ${payload.gameId}. Final price: ${payload.finalPrice}, Tick: ${payload.tickCount}.`);
-        // Example access: const { gameId, finalPrice, tickCount, data, gameTimestamp } = payload;
-        // const gameState = this.getGameState(gameId);
-        // Perform any P&L calculation or final logging for this game.
+        const gameId = payload.gameId;
+        this.logger.info(`Strategy ${this.strategyId}: onGameRugged hook for game ${gameId}. Final price: ${payload.finalPrice}, Tick: ${payload.tickCount}.`);
+        
+        const gameSpecificState = this.getGameState(gameId);
+        this.logger.info(`Strategy ${this.strategyId}: gameSpecificState for ${gameId} in onGameRugged:`, gameSpecificState);
 
-        // Clean up state for this specific game
-        if (this.gameStates[payload.gameId]) {
-            this.logger.debug(`Strategy ${this.strategyId}: Removing state for ended game ${payload.gameId}.`);
-            delete this.gameStates[payload.gameId];
+        const playerGameState = this.context.playerStateService ? this.context.playerStateService.getPlayerState(gameId, this.strategyId) : null;
+        this.logger.info(`Strategy ${this.strategyId}: playerGameState for ${gameId} in onGameRugged:`, playerGameState);
+
+        let reportData = {
+            strategyId: this.strategyId,
+            gameId: gameId,
+            tradesAttempted: gameSpecificState?.tradesAttempted || 0,
+            tradesExecuted: gameSpecificState?.tradesExecuted || 0,
+            tradesRejectedByRisk: gameSpecificState?.tradesRejectedByRisk || 0,
+            totalSpentSOL: 0,
+            totalReceivedSOL: 0,
+            realizedPnLSOL: 0,
+            // endExposureSOL: null, // Deferred for now or get from RiskManager if feasible
+            endStatus: 'completed_game' // Or more detailed status if available
+        };
+
+        if (playerGameState && playerGameState.sol) {
+            reportData.totalSpentSOL = playerGameState.sol.totalSolInvested || 0;
+            reportData.totalReceivedSOL = playerGameState.sol.totalSolReturned || 0;
+            reportData.realizedPnLSOL = playerGameState.sol.realizedPlSol || 0;
+        }
+
+        this.logger.info(`Strategy ${this.strategyId}: PREPARING to emit gamePerformanceReport for game ${gameId}. Report Data:`, reportData);
+        this.eventBus.emit('strategy:gamePerformanceReport', {
+            performanceReport: reportData,
+            category: 'strategy_metrics',
+            priority: 'normal'
+        });
+        this.logger.info(`Strategy ${this.strategyId}: Emitted gamePerformanceReport for game ${gameId}.`, reportData);
+
+        // Clean up state for this specific game (already handled by super if called, or manage here)
+        if (this.gameStates[gameId]) {
+            this.logger.debug(`Strategy ${this.strategyId}: Removing state for ended game ${gameId}.`);
+            delete this.gameStates[gameId];
         }
     }
 
@@ -321,6 +357,9 @@ class StrategyBase {
      * @returns {Promise<object|null>} Simulation result or null if tradeExecutor not available/inactive.
      */
     async executeBuy(gameId, amountToSpend, reason = '') {
+        const gameSpecificState = this.getGameState(gameId);
+        gameSpecificState.tradesAttempted++;
+
         if (!this.tradeExecutor) {
             this.logger.error(`Strategy ${this.strategyId}: TradeExecutor not available. Cannot executeBuy.`);
             return { success: false, reason: 'TradeExecutor not available' };
@@ -330,14 +369,17 @@ class StrategyBase {
             return { success: false, reason: 'Strategy inactive' };
         }
 
+        // Fetch current game state reliably for both risk check and trade execution params
+        const currentFullGameState = this.context.gameStateService ? this.context.gameStateService.getCurrentState() : null;
+
         // Pre-trade Risk Check
         this.logger.debug(`Strategy ${this.strategyId}: executeBuy - About to perform risk check. RiskManager available: ${!!(this.context && this.context.riskManagerService)}, GameStateService available: ${!!(this.context && this.context.gameStateService)}`);
         if (this.context && this.context.riskManagerService && this.context.gameStateService) {
-            const currentFullGameState = this.context.gameStateService.getCurrentState();
-            this.logger.debug(`Strategy ${this.strategyId}: executeBuy - currentFullGameState: ${JSON.stringify(currentFullGameState ? { price: currentFullGameState.price, gameId: currentFullGameState.gameId, phase: this.context.gameStateService.getCurrentPhase()} : null)}`);
+            // currentFullGameState is already fetched above
+            this.logger.debug(`Strategy ${this.strategyId}: executeBuy - currentFullGameState for risk check: ${JSON.stringify(currentFullGameState ? { price: currentFullGameState.price, gameId: currentFullGameState.gameId, phase: this.context.gameStateService.getCurrentPhase()} : null)}`);
 
             if (!currentFullGameState || currentFullGameState.price === undefined) {
-                this.logger.error(`Strategy ${this.strategyId}: Cannot perform risk check, current game state or price is unavailable.`);
+                this.logger.error(`Strategy ${this.strategyId}: Cannot perform risk check for BUY, current game state or price is unavailable.`);
                 return { success: false, reason: 'Risk check failed: Game state/price unavailable' };
             }
 
@@ -359,6 +401,7 @@ class StrategyBase {
 
                 if (!riskCheckResult.isApproved) {
                     this.logger.warn(`Strategy ${this.strategyId}: BUY trade rejected by RiskManager for game ${gameId}. Reason: ${riskCheckResult.reason}`);
+                    gameSpecificState.tradesRejectedByRisk++;
                     return { success: false, reason: `RiskManager: ${riskCheckResult.reason}` };
                 }
                 this.logger.debug(`Strategy ${this.strategyId}: BUY trade risk check approved for game ${gameId}.`);
@@ -372,14 +415,19 @@ class StrategyBase {
 
         this.logger.info(`Strategy ${this.strategyId} (Game: ${gameId}): Requesting BUY: ${amountToSpend} SOL. Reason: ${reason}`);
         try {
-            // Assuming tradeExecutor.simulateBuy takes an object. Adjust if different.
-            return await this.tradeExecutor.simulateBuy({
-                playerId: this.strategyId, // Or a dedicated bot ID managed by the strategy
+            const tradeResult = await this.tradeExecutor.simulateBuy({
+                playerId: this.strategyId, 
                 currency: 'SOL',
                 amountToSpend: amountToSpend,
-                strategyName: this.strategyId, // Pass strategyId as strategyName
-                gameId: gameId // If your simulateBuy needs gameId explicitly
+                strategyName: this.strategyId, 
+                gameId: gameId, 
+                price: currentFullGameState?.price, // Pass current price to mock executor
+                tickCount: currentFullGameState?.tickCount 
             });
+            if (tradeResult && tradeResult.success) {
+                gameSpecificState.tradesExecuted++;
+            }
+            return tradeResult;
         } catch (error) {
             this.logger.error(`Strategy ${this.strategyId} (Game: ${gameId}): Error executing buy: ${error.message}`, error);
             return { success: false, reason: error.message, error };
@@ -394,6 +442,9 @@ class StrategyBase {
      * @returns {Promise<object|null>} Simulation result or null if tradeExecutor not available/inactive.
      */
     async executeSellByPercentage(gameId, percentageToSell, reason = '') {
+        const gameSpecificState = this.getGameState(gameId);
+        gameSpecificState.tradesAttempted++;
+
         if (!this.tradeExecutor) {
             this.logger.error(`Strategy ${this.strategyId}: TradeExecutor not available. Cannot executeSell.`);
             return { success: false, reason: 'TradeExecutor not available' };
@@ -406,33 +457,38 @@ class StrategyBase {
             this.logger.warn(`Strategy ${this.strategyId}: Invalid sell percentage: ${percentageToSell}. Must be > 0 and <= 100.`);
             return { success: false, reason: 'Invalid sell percentage' };
         }
+        
+        const currentFullGameState = this.context.gameStateService ? this.context.gameStateService.getCurrentState() : null;
+        const playerState = this.context.playerStateService ? this.context.playerStateService.getPlayerState(gameId, this.strategyId) : null;
+
+        if (!playerState || !playerState.sol || playerState.sol.tokenBalance === undefined) {
+            this.logger.error(`Strategy ${this.strategyId}: Player token balance is unavailable for ${this.strategyId} in game ${gameId} for sell. PlayerState: ${JSON.stringify(playerState)}`);
+            // This error now happens BEFORE the risk check if player state is not available, making the other error moot.
+            return { success: false, reason: 'Player balance unavailable for sell operation' }; 
+        }
+
+        const tokenBalance = playerState.sol.tokenBalance;
+        const tokenAmountToSell = tokenBalance * (percentageToSell / 100);
+        this.logger.info(`Strategy ${this.strategyId}: Calculated tokenAmountToSell: ${tokenAmountToSell} (from balance: ${tokenBalance}, %: ${percentageToSell})`);
+
+        if (tokenAmountToSell <= 0.00000001) { // Epsilon for very small balances
+            this.logger.info(`Strategy ${this.strategyId}: No tokens to sell for game ${gameId} based on percentage ${percentageToSell}% of balance ${tokenBalance.toFixed(8)}. Calculated amount: ${tokenAmountToSell.toFixed(8)}.`);
+            return { success: false, reason: 'No tokens to sell or amount too small', tokensSold: 0, proceeds: 0 };
+        }
 
         // Pre-trade Risk Check
-        this.logger.debug(`Strategy ${this.strategyId}: executeSellByPercentage - About to perform risk check. RiskManager available: ${!!(this.context && this.context.riskManagerService)}, GameStateService available: ${!!(this.context && this.context.gameStateService)}, PlayerStateService available: ${!!(this.context && this.context.playerStateService)}`);
-        if (this.context && this.context.riskManagerService && this.context.gameStateService && this.context.playerStateService) {
-            const currentFullGameState = this.context.gameStateService.getCurrentState();
-            const playerState = this.context.playerStateService.getPlayerState(gameId, this.strategyId);
-            this.logger.debug(`Strategy ${this.strategyId}: executeSellByPercentage - currentFullGameState: ${JSON.stringify(currentFullGameState ? { price: currentFullGameState.price, gameId: currentFullGameState.gameId, phase: this.context.gameStateService.getCurrentPhase()} : null)}`);
-            this.logger.debug(`Strategy ${this.strategyId}: executeSellByPercentage - playerState (SOL balance): ${JSON.stringify(playerState && playerState.sol ? playerState.sol.tokenBalance : 'Player state or SOL balance unavailable')}`);
+        this.logger.debug(`Strategy ${this.strategyId}: executeSellByPercentage - About to perform risk check.`);
+        if (this.context && this.context.riskManagerService && this.context.gameStateService) {
+            this.logger.debug(`Strategy ${this.strategyId}: executeSellByPercentage - currentFullGameState for risk check: ${JSON.stringify(currentFullGameState ? { price: currentFullGameState.price, gameId: currentFullGameState.gameId, phase: this.context.gameStateService.getCurrentPhase()} : null)}`);
 
             if (!currentFullGameState || currentFullGameState.price === undefined) {
                 this.logger.error(`Strategy ${this.strategyId}: Cannot perform risk check for SELL, current game state or price is unavailable.`);
+                gameSpecificState.tradesRejectedByRisk++; // Still count as attempt and rejection
                 return { success: false, reason: 'Risk check failed: Game state/price unavailable' };
             }
-            if (!playerState || !playerState.sol || playerState.sol.tokenBalance === undefined) {
-                this.logger.error(`Strategy ${this.strategyId}: Cannot perform risk check for SELL, player token balance is unavailable for ${this.strategyId} in game ${gameId}. PlayerState: ${JSON.stringify(playerState)}`);
-                return { success: false, reason: 'Risk check failed: Player balance unavailable' };
-            }
-
+            
             const currentPrice = currentFullGameState.price;
-            const tokenBalance = playerState.sol.tokenBalance;
-            const tokenAmountToSell = tokenBalance * (percentageToSell / 100);
             const evaluatedSellValueSOL = tokenAmountToSell * currentPrice;
-
-            if (tokenAmountToSell <= 0) {
-                this.logger.info(`Strategy ${this.strategyId}: No tokens to sell for game ${gameId} based on percentage ${percentageToSell}% of balance ${tokenBalance}. Skipping sell and risk check.`);
-                return { success: false, reason: 'No tokens to sell' , tokensSold: 0, proceeds: 0 }; // Or a specific non-error status
-            }
 
             const tradeParams = {
                 type: 'sell',
@@ -453,27 +509,35 @@ class StrategyBase {
 
                 if (!riskCheckResult.isApproved) {
                     this.logger.warn(`Strategy ${this.strategyId}: SELL trade rejected by RiskManager for game ${gameId}. Reason: ${riskCheckResult.reason}`);
+                    gameSpecificState.tradesRejectedByRisk++;
                     return { success: false, reason: `RiskManager: ${riskCheckResult.reason}` };
                 }
                 this.logger.debug(`Strategy ${this.strategyId}: SELL trade risk check approved for game ${gameId}.`);
             } catch (riskError) {
                 this.logger.error(`Strategy ${this.strategyId}: Error during risk check for SELL: ${riskError.message}`, riskError);
+                gameSpecificState.tradesRejectedByRisk++; // Count as attempt and rejection
                 return { success: false, reason: `Risk check error: ${riskError.message}` };
             }
         } else {
             this.logger.warn(`Strategy ${this.strategyId}: RiskManagerService, GameStateService, or PlayerStateService not available in context. Skipping risk check for SELL.`);
         }
 
-        this.logger.info(`Strategy ${this.strategyId} (Game: ${gameId}): Requesting SELL: ${percentageToSell}%. Reason: ${reason}`);
+        this.logger.info(`Strategy ${this.strategyId} (Game: ${gameId}): Requesting SELL: ${percentageToSell}% (${tokenAmountToSell.toFixed(8)} tokens). Reason: ${reason}`);
         try {
-            // Assuming tradeExecutor.simulateSellByPercentage takes an object.
-            return await this.tradeExecutor.simulateSellByPercentage({
-                playerId: this.strategyId, // Or a dedicated bot ID
-                currency: 'SOL', // Assuming SOL-based tokens
+            const tradeResult = await this.tradeExecutor.simulateSellByPercentage({
+                playerId: this.strategyId, 
+                currency: 'SOL', 
                 percentageToSell: percentageToSell,
+                tokenAmountToSell: tokenAmountToSell, // Pass the calculated tokenAmountToSell
+                price: currentFullGameState?.price, // Pass current price to mock executor
                 strategyName: this.strategyId,
-                gameId: gameId // If needed
+                gameId: gameId, 
+                tickCount: currentFullGameState?.tickCount 
             });
+            if (tradeResult && tradeResult.success) {
+                gameSpecificState.tradesExecuted++;
+            }
+            return tradeResult;
         } catch (error) {
             this.logger.error(`Strategy ${this.strategyId} (Game: ${gameId}): Error executing sell: ${error.message}`, error);
             return { success: false, reason: error.message, error };

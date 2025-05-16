@@ -134,16 +134,17 @@ class RugsProtocolAdapter {
 
         } catch (error) {
             // Catch unexpected errors during the main handling logic
-            const directLogger = require('../../utils/logger'); // Directly require for safety here
+            // const directLogger = require('../../utils/logger'); // Bypass winston for this specific catch
             const errorMessage = error instanceof Error ? error.message : String(error);
-            
-            // Use directLogger instead of this.logger
-            directLogger.error(`RugsProtocolAdapter: Unexpected error in _handleRawFrame: ${errorMessage}`, { stack: error instanceof Error ? error.stack : undefined });
+            const errorStack = error instanceof Error ? error.stack : 'No stack available';
+
+            console.error('[CRITICAL] RugsProtocolAdapter: Unexpected error in _handleRawFrame:', errorMessage);
+            console.error('[CRITICAL] RugsProtocolAdapter: Error Stack:', errorStack);
             
             if (rawWebSocketPayload) { 
-                directLogger.debug(`Original payload that may have caused error in _handleRawFrame: ${String(rawWebSocketPayload).substring(0, 500)}...`);
+                console.log(`[DEBUG] RugsProtocolAdapter: Original payload that may have caused error in _handleRawFrame: ${String(rawWebSocketPayload).substring(0, 500)}...`);
             } else {
-                directLogger.debug('Original rawWebSocketPayload was undefined during error in _handleRawFrame.');
+                console.log('[DEBUG] RugsProtocolAdapter: Original rawWebSocketPayload was undefined during error in _handleRawFrame.');
             }
         }
     }

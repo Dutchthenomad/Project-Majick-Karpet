@@ -12,6 +12,7 @@ const playerStateService = require('./services/player-state-service.js'); // Imp
 const gameAnalyticsService = require('./services/game-analytics-service'); // Import GameAnalyticsService
 const TradeExecutionService = require('./services/trade-execution-service'); // Import TradeExecutionService
 const RiskManagerService = require('./services/risk-manager-service'); // Import RiskManagerService
+const DataPersistenceService = require('./services/data-persistence-service'); // Import DataPersistenceService
 const StrategyManager = require('./strategy-manager'); // Import StrategyManager
 const { getConfig } = require('../config/config-service'); // Import config-service
 
@@ -36,6 +37,7 @@ class BotEngine {
         logger: logger 
         // configService is used internally by RiskManager via getConfig
     });
+    this.dataPersistenceService = new DataPersistenceService(this.config); // Instantiate DataPersistenceService
     this.state = {
       running: false,
       browserConnected: false,
@@ -92,6 +94,17 @@ class BotEngine {
       logger.info('Engine: Starting data collection service...');
       dataCollectionService.startListening();
       
+      // Start Data Persistence Service
+      logger.info('Engine: Initializing data persistence service...');
+      const persistenceInitialized = await this.dataPersistenceService.initialize();
+      if (!persistenceInitialized) {
+        logger.error('Engine: Data Persistence Service failed to initialize. Halting startup further dependent services or bot.');
+        // Depending on strictness, you might want to fully stop the engine here
+        // For now, we'll log the error and continue, but this service is critical for Phase 4.
+        // Consider: await this.stop(); return;
+      }
+      logger.info('Engine: Data persistence service initialized.');
+
       // 5. Start Game State Service Listening
       logger.info('Engine: Starting game state service...');
       await this.gameStateService.initialize(); // Assuming services have an initialize method
@@ -164,6 +177,13 @@ class BotEngine {
     await this.strategyManager.stopAll();
     logger.info('Engine: Shutting down all strategies...');
     await this.strategyManager.shutdownAll();
+
+    // Stop Data Persistence Service (before other data source services if it writes their final states)
+    // Or after, if it needs to log their shutdown events. Let's stop it relatively late but before DB-dependent services are fully gone.
+    if (this.dataPersistenceService) {
+        logger.info('Engine: Shutting down data persistence service...');
+        await this.dataPersistenceService.shutdown();
+    }
 
     // 1. Stop other services/strategies (Phase 2+) - Reverse order
     // Placeholder for future phases

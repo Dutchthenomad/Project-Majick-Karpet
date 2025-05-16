@@ -10,21 +10,14 @@ Majick Karpet is a Node.js application designed to connect to the `rugs.fun` gam
 
 **Phase 3 Complete: Robust Risk Management, Strategy Simulation, and Core Enhancements**
 
-Building on previous phases, Phase 3 has delivered:
+Building on previous phases, Phase 3 has delivered a sophisticated platform for game analysis and strategy simulation:
 
-*   **Comprehensive Risk Management:** A dedicated `RiskManagerService` now performs detailed pre-trade checks against strategy-specific and global limits (e.g., max buy amount, max open trades per strategy, max strategy exposure, global exposure). It accurately tracks capital at risk using cost-basis accounting (FIFO) and correctly manages open trade counts for simulated trades.
-*   **Strategy Execution & Simulation:** The `StrategyManager` and `StrategyBase` now fully support loading, validating, and running multiple trading strategies. Strategies can simulate buy/sell orders via the `TradeExecutionService`, with outcomes tracked by `PlayerStateService` and risk managed by `RiskManagerService`.
-*   **Configuration Validation:** The system now uses Joi for robust schema validation of `config/default.json` at startup, ensuring all critical configurations (including risk parameters) are correct and preventing the bot from starting with invalid settings.
-*   **Event-Driven Architecture:** Further refined the event bus for decoupled communication, with all core services interacting through well-defined events.
+*   **Comprehensive Risk Management:** A dedicated `RiskManagerService` performs detailed pre-trade checks against strategy-specific and global limits (e.g., max buy amount, max open trades per strategy, max strategy exposure, global exposure). It accurately tracks capital at risk using cost-basis accounting (FIFO via `PlayerStateService`) and correctly manages open trade counts for simulated trades. Risk state is persisted across sessions.
+*   **Strategy Execution & Simulation:** The `StrategyManager` and `StrategyBase` fully support loading, validating configurations of, and running multiple trading strategies. Strategies simulate buy/sell orders via the `TradeExecutionService`, with outcomes tracked by `PlayerStateService` and risk managed by `RiskManagerService`.
+*   **Configuration Validation:** The system utilizes Joi for robust schema validation of `config/default.json` at startup, ensuring all critical configurations (including risk parameters) are correct and preventing the bot from starting with invalid settings. Application halts on critical validation errors.
+*   **Event-Driven Architecture:** A refined `EventBus` with structured payloads and filtering capabilities ensures decoupled communication between modular services.
 *   **Data Integrity:** Implemented a trade event buffer queue in `RugsProtocolAdapter` to prevent loss of trade data if events arrive before game context is established.
-*   **Core Services (from previous phases, now integrated into the Phase 3 framework):**
-    *   Browser Integration: Connects to a manually launched Chrome instance.
-    *   WebSocket Interception: Captures WebSocket frames via CDP.
-    *   Protocol Parsing: Decodes `rugs.fun` game messages.
-    *   Data Collection: Logs raw WebSocket frames.
-    *   Game State Tracking: Maintains real-time game parameters.
-    *   Player State Tracking: Tracks player buy/sell actions, P/L (now including simulated trades accurately).
-    *   Game Analytics: Calculates and logs game summary statistics.
+*   **Core Data Services:** Robust services for browser integration, WebSocket interception, protocol parsing, raw data logging, real-time game state tracking, detailed player state tracking (including simulated P&L using cost-basis), and end-of-game analytics summaries.
 
 ## Core Technologies & Libraries
 
@@ -314,6 +307,97 @@ This architecture provides the robust foundation needed for both completing Phas
 ---
 
 > **Collaboration Note:**
-> For optimal results, all collaborators—including agentic AI assistants—should request access to the `PROJECT_MEMORY.md` file in this repository. This file contains a concise summary of the current architecture, priorities, and context, and should be reviewed before making architectural or strategic decisions.
+> For optimal results, all collaborators—including agentic AI assistants—should consult `PROJECT_MEMORY.md` for a concise summary of the current architecture, priorities, and context.
+
+*This README will be updated as the project progresses.*
+
+## Phase 4 Goals: Data Persistence, Backtesting, and Advanced Capabilities
+
+With the robust foundation of Phase 3, Phase 4 will focus on enabling long-term data collection and analysis, and building a powerful backtesting engine. Key objectives include:
+
+1.  **Data Persistence Layer (Primary Focus):**
+    *   **Implement `DataPersistenceService`**: To manage all database interactions using SQLite initially (via `better-sqlite3`).
+    *   **Define & Create Database Schema**: For `games`, `price_updates`, `game_events`, `trades`, `strategy_performance` with appropriate indexing and relations.
+    *   **Integrate Services**: Adapt existing services to log data through `DataPersistenceService` using batched writes and transactions.
+    *   **Develop Query API**: For retrieving historical data needed for backtesting and analysis.
+
+2.  **Backtesting Engine Development:**
+    *   Create a `BacktestEngine` to replay historical data from the database.
+    *   Simulate strategy execution against historical data with time control.
+    *   Implement collection and basic visualization of backtest performance metrics.
+
+3.  **Further System & Strategy Enhancements:**
+    *   Rigorously test `globalMaxConcurrentTradesGlobal` with multiple strategies.
+    *   Plan for database schema versioning and advanced query optimizations.
+    *   Improve system resilience for long-running data collection (memory management, crash recovery).
+    *   Develop more sophisticated trading strategies based on data insights.
+
+4.  **Advanced Analytics & Long-Term Vision:**
+    *   Leverage persisted data for in-depth quantitative analysis.
+    *   Explore a dedicated UI/Dashboard for monitoring and analysis.
+
+## Phase 4 Implementation Strategy: Data Persistence Layer (Based on AI Assistant Briefing)
+
+_The following outlines the detailed plan for the initial stages of Phase 4, focusing on establishing the data persistence layer and a foundational backtesting capability. For a full project context, refer to `PROJECT_MEMORY.md`._
+
+### Core Database Schema Design (SQLite Initial)
+
+*   **`games`**: `game_id` (PK), `start_time`, `end_time`, `rug_price`, `server_seed_hash`, etc.
+*   **`price_updates`**: `id` (PK), `game_id` (FK), `tick`, `price`, `timestamp`. Indexed on `(game_id, tick)`.
+*   **`game_events`**: `id` (PK), `game_id` (FK), `event_type`, `tick`, `timestamp`, `data` (JSON). Indexed on `(game_id, timestamp)`.
+*   **`trades`**: `id` (PK), `game_id` (FK), `player_id`, `is_simulated`, `action`, `amount`, `price`, `cost_basis`, `realized_pnl`, `strategy_id`. Indexed on `(game_id, player_id)` and `(strategy_id, game_id)`.
+*   **`strategy_performance`**: `id` (PK), `strategy_id`, `game_id` (FK), `trades_attempted`, `trades_executed`, `realized_pnl`, `end_exposure`. Unique on `(strategy_id, game_id)`.
+
+_(Detailed CREATE TABLE statements as previously outlined will be implemented in `DataPersistenceService`.)_
+
+### Integration Approach for `DataPersistenceService`
+
+1.  **Service Creation & Initialization:**
+    *   Instantiate `DataPersistenceService` in `BotEngine`.
+    *   `initialize()` method will set up DB connection (e.g., `better-sqlite3`) and create schema if not present.
+2.  **Event Listeners:**
+    *   Subscribe to `game:newGame`, `game:rugged`, `game:priceUpdate`, `game:phaseChange`.
+    *   Subscribe to `trade:executed` (for potential future real trades), `trade:simulatedBuy`, `trade:simulatedSell`.
+    *   Subscribe to `strategy:gameCompleted` (new event to be emitted by `StrategyManager` or `StrategyBase` at game end for each strategy) for `strategy_performance` data.
+3.  **Batched Writes & Transactions:**
+    *   Implement internal queues for `price_updates`, `game_events`, `trades`.
+    *   A timer will periodically call `flushWriteQueues()` which will write batches to DB within transactions.
+    *   Critical single events like `game:newGame` may be written immediately within a transaction.
+4.  **Query Methods:** Expose methods like `getGameData(gameId)`, `getGamePriceHistory(gameId)`.
+5.  **Graceful Shutdown:** Flush queues and close DB connection.
+
+### Simple Backtesting Implementation Plan
+
+1.  **`BacktestEngine` Class:**
+    *   Takes `DataPersistenceService` to load historical data.
+    *   Uses a separate `EventEmitter` for isolated backtest event flow.
+2.  **Process:**
+    *   Load all data for a specific `gameId`.
+    *   Instantiate strategies to be tested.
+    *   Emit `game:newGame` with historical start time.
+    *   Iterate through stored `price_updates` and `game_events`, emitting them onto the backtest event bus, respecting original time differences (scaled by a speed multiplier).
+    *   Strategies react to these replayed events and make simulated trades (which would also be recorded by a backtest-scoped `PlayerStateService`/`RiskManagerService` or directly logged by the backtest engine).
+    *   Emit `game:rugged` with historical end data.
+3.  **Results:** Collect trade history and P&L for each strategy from the backtest run.
+
+### Implementation Sequence (Initial Phase 4 Focus)
+
+*   **Week 1-2: Core Schema & `DataPersistenceService` Basics:**
+    *   Install `better-sqlite3`.
+    *   Implement `DataPersistenceService` with `setupDatabase` (schema creation) and `initialize`.
+    *   Implement event handlers and write logic for `games` and critical `game_events` (e.g., `newGame`, `rugged`) with transaction support.
+*   **Week 3-4: Complete Data Collection & Queuing:**
+    *   Implement full event listener suite in `DataPersistenceService` for `price_updates`, all `game_events`, `trades` (simulated).
+    *   Implement batched writing (`writeQueue` and `flushWriteQueues`).
+    *   Begin persistent data collection from live simulation runs.
+    *   Develop and integrate `strategy:gameCompleted` event and `strategy_performance` table saving.
+*   **Week 5-6: Query APIs & Basic Backtesting Prototype:**
+    *   Implement data retrieval methods in `DataPersistenceService`.
+    *   Build the initial `BacktestEngine` capable of replaying a single game's price history and basic events for one strategy.
+
+---
+
+> **Collaboration Note:**
+> For optimal results, all collaborators—including agentic AI assistants—should consult `PROJECT_MEMORY.md` for a concise summary of the current architecture, priorities, and context.
 
 *This README will be updated as the project progresses.* 

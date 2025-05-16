@@ -22,6 +22,7 @@ class GameStateService extends ServiceBase { // Extend ServiceBase
             gameId: null,
             phase: 'unknown', // e.g., 'presale', 'active', 'settlement', 'cooldown', 'unknown'
             lastPrice: null,
+            peakPriceThisGame: 0, // Initialize peak price for the game
             lastTickCount: -1,
             lastCandleIndex: -1,
             lastServerSeedHash: null, 
@@ -96,9 +97,17 @@ class GameStateService extends ServiceBase { // Extend ServiceBase
         // 1. Check for New Game
         if (update.gameId && update.gameId !== previousState.gameId) {
             logger.info(`New Game Detected: ${update.gameId} (Previous: ${previousState.gameId})`);
+            const oldGameId = previousState.gameId;
+            const oldPeakPrice = previousState.peakPriceThisGame; // Capture peak price of the game that just ended
+
             this.currentState = this._getDefaultState(); // Reset state for new game
             this.currentState.gameId = update.gameId;
             this.currentState.lastUpdate = update; // Store update after reset
+            // Initialize peakPrice for the new game with the first price observed
+            if (update.price !== null && update.price !== undefined) {
+                this.currentState.peakPriceThisGame = update.price;
+            }
+
             eventBus.emit('game:newGame', { 
                 // timestamp: update.timestamp, // This is the original event timestamp from protocol adapter
                 gameTimestamp: update.timestamp, // Renaming to avoid clash, this is the game data's timestamp
@@ -151,12 +160,13 @@ class GameStateService extends ServiceBase { // Extend ServiceBase
             });
              // If game becomes rugged, also emit specific event
             if(determinedPhase === 'settlement' && previousInternalState.phase !== 'settlement') {
-                logger.info(`Game Rugged: ${update.gameId} at price ${update.price}`);
+                logger.info(`Game Rugged: ${update.gameId} at price ${update.price}. Peak price was: ${this.currentState.peakPriceThisGame}`);
                  eventBus.emit('game:rugged', {
                     // timestamp: update.timestamp,
                     gameTimestamp: update.timestamp,
                     gameId: update.gameId,
                     finalPrice: update.price,
+                    peakPrice: this.currentState.peakPriceThisGame, // Include peak price
                     tickCount: update.tickCount,
                     data: update,
                     category: 'game_lifecycle',
@@ -171,6 +181,10 @@ class GameStateService extends ServiceBase { // Extend ServiceBase
         // Emit Price Update
         if (update.price !== null && update.price !== previousInternalState.lastPrice) {
             this.currentState.lastPrice = update.price;
+            // Update peak price for the current game
+            if (update.price > this.currentState.peakPriceThisGame) {
+                this.currentState.peakPriceThisGame = update.price;
+            }
             eventBus.emit('game:priceUpdate', {
                 // timestamp: update.timestamp,
                 gameTimestamp: update.timestamp,

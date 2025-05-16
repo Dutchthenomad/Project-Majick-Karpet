@@ -6,6 +6,15 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# Application log files (specific)
+logs/app.log
+logs/raw_websocket_data.jsonl
+
+# SQLite database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 

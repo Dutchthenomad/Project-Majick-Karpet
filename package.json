@@ -12,10 +12,13 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "better-sqlite3": "^11.10.0",
     "blessed": "^0.1.81",
+    "discord.js": "^14.19.3",
     "express": "^4.21.2",
     "inquirer": "^9.2.12",
     "joi": "^17.13.3",
+    "lodash": "^4.17.21",
     "puppeteer": "^24.8.2",
     "socket.io": "^4.8.1",
     "winston": "^3.17.0"
