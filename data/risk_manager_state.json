@@ -1,5 +1,5 @@
 {
-  "totalCapitalAtRisk": 33.714547368686645,
+  "totalCapitalAtRisk": 63.56454736868071,
   "perStrategy": [
     [
       "simBotUser1Fixed",
@@ -20,8 +20,8 @@
     [
       "simBotUser1",
       {
-        "capitalAtRisk": 33.710497607897125,
-        "openTradesCount": 3372,
+        "capitalAtRisk": 63.560497607891186,
+        "openTradesCount": 6357,
         "pnl": 0
       }
     ],

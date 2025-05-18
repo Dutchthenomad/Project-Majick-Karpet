@@ -57,6 +57,7 @@ import {
 // ---------------------------
 import inquirer from 'inquirer';
 import { HouseTracker } from './house_tracker.js'; // Added import for HouseTracker
+import BotEngine from './core/engine.js'; // Import BotEngine
 
 // --- TUI Integration ---
 // SET FLAG BEFORE TUI OR LOGGER ARE FULLY INITIALIZED
@@ -235,10 +236,10 @@ async function showMainMenu() {
 
 // --- Original Main Execution Block (now as a function) ---
 async function startTradingBot() {
-  let browser = null;
-  let page = null;
-  let houseTracker = null; // Initialize houseTracker
-  // let rl = null; // No longer needed
+  // Remove browser, page, ws variable declarations as Engine will manage them
+  // let browser = null;
+  // let page = null;
+  let houseTracker = null; // Initialize houseTracker, keep for now
 
   try {
     // rl = readline.createInterface({ input: process.stdin, output: process.stdout }); // Removed
@@ -247,92 +248,55 @@ async function startTradingBot() {
     // --- DELAY TUI INIT --- 
     // global.TUI_ACTIVE = false; // TEMP SET TO FALSE
 
-    logger.info('--- Bot Starting ---');
-    browser = await connectToBrowser();
-    if (!browser) throw new Error('Failed to connect to or launch browser.');
+    logger.info('--- Bot Starting --- ');
 
+    // Pre-engine setup steps (wallet, capital)
     logger.info("\\n--- Wallet Interaction Required (in browser) ---");
-    // await askQuestion("1. Please log into Phantom Wallet. Press Enter when done..."); // Removed
     await askWithBlessed("1. Please ensure you are logged into Phantom Wallet in the browser.\\n   Press OK to continue.", 'button');
     logger.info("Wallet login step acknowledged.");
 
-    // const walletBalanceInput = await askQuestion(`2. Enter session capital (SOL, format X.XXXX, min ${MIN_SESSION_CAPITAL}, max ${MAX_SESSION_CAPITAL}). Press Enter for default (${SESSION_TOTAL_CAPITAL_DEFAULT} SOL): `); // Removed
     initializeSessionCapital(); // Initialize with default capital
-    logger.info("[MainSetup] Session capital initialized with default value.")
+    logger.info("[MainSetup] Session capital initialized with default value.");
 
-    // --- Initialize House Tracker ---
-    houseTracker = new HouseTracker();
-    logger.info('[MainSetup] House Edge Tracker initialized.');
+    // --- Initialize and start BotEngine ---
+    logger.info('[Main] Initializing BotEngine...');
+    const engine = new BotEngine(); // Pass global config if BotEngine constructor expects it
+    logger.info('[Main] Starting BotEngine...');
+    await engine.start();
+    logger.info('[Main] BotEngine started successfully. Operations are now managed by the engine.');
+
+    // --- Initialize House Tracker (current placement, review for better integration later) ---
+    houseTracker = new HouseTracker(); // Assuming HouseTracker is self-contained or gets EventBus singleton
+    logger.info('[MainSetup] House Edge Tracker initialized (standalone for now).');
 
     houseTracker.on('exit', () => {
-      logger.info('[Main] House Tracker signalled exit.');
-      // Potentially add a small delay or check if other TUI is active
-      // For now, directly call displayStatsAndExit
-      displayStatsAndExit(0);
+      logger.info('[Main] House Tracker signalled exit. Requesting engine stop.');
+      if (engine) {
+        engine.stop().then(() => {
+            logger.info('[Main] Engine stopped on HouseTracker exit signal.');
+            displayStatsAndExit(0);
+        }).catch(err => {
+            logger.error('[Main] Error stopping engine on HouseTracker exit:', err);
+            displayStatsAndExit(1);
+        });
+      } else {
+        displayStatsAndExit(0);
+      }
     });
 
-    // --- NOW Initialize Full TUI --- // TEMP COMMENT OUT BLOCK
-    /*
-    logger.info('[MainSetup] Initial prompts complete. Initializing main TUI...');
-    global.TUI_ACTIVE = true;
-    const { logPanelWidget } = await import('./tui.js'); 
-    */
-    let logPanelWidget = null; // TEMP: Ensure it's defined for catch blocks
-
-    const pages = await browser.pages();
-    page = pages.length > 0 ? pages[0] : await browser.newPage();
-    logger.info(`Navigating to: ${URL}`);
-    await page.goto(URL, { waitUntil: 'networkidle2' });
-    logger.info('Page navigated successfully.');
-    await wait(1000);
-
-    const ws = await setupWebSocketListener(page);
-    if (!ws) throw new Error('Failed to set up WebSocket listener.');
-    logger.info('[Main] WebSocket listener attached. Bot core running...');
-    
-    ws.on('message', (parsedData) => {
-        // Pass message to HouseTracker first
-        if (houseTracker) { // Ensure houseTracker is initialized
-            houseTracker.processMessage(parsedData);
-        }
-
-        if (parsedData?.type !== 'gameStateUpdate') {
-             logger.debug(`[Main] WS Msg: ${parsedData?.type || 'N/A'}`);
-        }
-        if (parsedData.type === 'gameStateUpdate' && parsedData.data) {
-             handleGameStateUpdate(page, parsedData.data).catch(strategyError => {
-                 logger.error('[Main] Error executing strategy handler:', strategyError);
-                 if (logPanelWidget && typeof logPanelWidget.log === 'function') { // Check if logPanel was successfully imported and is usable
-                    logPanelWidget.log(`Strategy Error: ${strategyError.message}`);
-                 } else {
-                    // logger.warn('[Main] TUI logPanel not available for strategy error.'); // Already logged to file
-                 }
-             });
-        }
-    });
-
-    ws.on('close', () => {
-        logger.error('[Main] WebSocket connection closed unexpectedly.');
-        if (logPanelWidget && typeof logPanelWidget.log === 'function') {
-            logPanelWidget.log('WebSocket connection CLOSED unexpectedly!');
-        }
-        displayStatsAndExit(1); 
-    });
-
+    // The direct WebSocket handling (ws.on('message') etc.) is removed.
+    // That logic should now be handled by services within BotEngine (e.g., ProtocolAdapter -> EventBus -> Strategies/Services)
     // logger.info('[Main] Bot core setup complete. TUI is primary interface. Press Q/ESC in TUI to exit.'); // TEMP COMMENT OUT
-    logger.info('[Main] Bot core setup complete (TUI TEMPORARILY DISABLED). Script will run until manually stopped (Ctrl+C).');
+    logger.info('[Main] Bot core setup complete (TUI TEMPORARILY DISABLED). Engine is running. Script will run until manually stopped (Ctrl+C) or HouseTracker exits.');
 
   } catch (error) {
-    logger.error('--- FATAL ERROR in Main Execution ---', error);
-    if (browser) {
-      try {
-        await browser.close();
-        logger.info('Browser closed after fatal error.');
-      } catch (closeError) {
-        logger.error('Error closing browser:', closeError);
-      }
-    }
-    process.exit(1);
+    logger.error('--- FATAL ERROR in Main Execution (startTradingBot) ---', error);
+    // Note: engine.stop() will be attempted by the engine itself if its start() fails internally.
+    // If error is before engine instantiation or from engine.start() re-throwing, 
+    // there might not be an engine instance to call .stop() on here.
+    // The primary browser.close() was also part of the old direct handling.
+    // BotEngine's stop method should handle resource cleanup including browser.
+    displayStatsAndExit(1); // Use the existing graceful exit function
   }
 }
 

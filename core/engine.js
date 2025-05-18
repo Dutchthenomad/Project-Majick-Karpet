@@ -1,5 +1,7 @@
 const EventBus = require('./events/event-bus');
 const logger = require('../utils/logger'); // Assuming logger is in utils
+const fs = require('fs'); // Added fs
+const path = require('path'); // Added path
 
 // Import Phase 1 Modules (Singletons)
 const browserManager = require('./browser/browser');
@@ -15,6 +17,7 @@ const RiskManagerService = require('./services/risk-manager-service'); // Import
 const DataPersistenceService = require('./services/data-persistence-service'); // Import DataPersistenceService
 const StrategyManager = require('./strategy-manager'); // Import StrategyManager
 const { getConfig } = require('../config/config-service'); // Import config-service
+const DashboardService = require('./services/dashboard-service'); // Import DashboardService
 
 /**
  * Core engine that orchestrates all components
@@ -38,6 +41,9 @@ class BotEngine {
         // configService is used internally by RiskManager via getConfig
     });
     this.dataPersistenceService = new DataPersistenceService(this.config); // Instantiate DataPersistenceService
+    this.dashboardService = new DashboardService({ eventBus: this.eventBus, config: this.config }); // Instantiate DashboardService
+    logger.info('DashboardService instantiated.');
+
     this.state = {
       running: false,
       browserConnected: false,
@@ -132,12 +138,39 @@ class BotEngine {
       await this.riskManagerService.start();
 
       // --- Phase 3: Start StrategyManager and Strategies ---
-      logger.info('Engine: Loading strategy configurations from config...');
-      const strategyConfigs = getConfig('strategies', []);
-      await this.strategyManager.loadStrategies(strategyConfigs);
-      await this.strategyManager.initializeAll();
-      await this.strategyManager.startAll();
-      logger.info('Engine: All strategies loaded, initialized, and started.');
+      logger.info('Engine: Loading strategy configurations from file...');
+      let strategyConfigsFromFile = [];
+      try {
+        const strategyConfigPath = path.join(__dirname, '../config/strategy-config.json');
+        if (fs.existsSync(strategyConfigPath)) {
+            const strategyConfigFile = fs.readFileSync(strategyConfigPath, 'utf-8');
+            strategyConfigsFromFile = JSON.parse(strategyConfigFile);
+            logger.info(`Engine: Successfully loaded ${strategyConfigsFromFile.length} strategy configuration(s) from strategy-config.json`);
+        } else {
+            logger.warn('Engine: strategy-config.json not found at ' + strategyConfigPath + '. No strategies will be loaded from this file.');
+        }
+      } catch (err) {
+          logger.error('Engine: Error loading or parsing strategy-config.json:', err);
+          // Continue with an empty array, so the bot can still start if other functionalities are independent
+      }
+
+      if (strategyConfigsFromFile && strategyConfigsFromFile.length > 0) {
+        await this.strategyManager.loadStrategies(strategyConfigsFromFile);
+        await this.strategyManager.initializeAll();
+        await this.strategyManager.startAll();
+        logger.info('Engine: Strategies from file loaded, initialized, and started.');
+      } else {
+        logger.info('Engine: No strategies found in strategy-config.json or an error occurred. No file-based strategies started.');
+      }
+
+      // Start Dashboard Service (after other services it might depend on for initial state, but before 'engine:started')
+      logger.info('Engine: Starting Dashboard Service...');
+      if (this.dashboardService) {
+        await this.dashboardService.start();
+        logger.info('Engine: Dashboard Service started.');
+      } else {
+        logger.warn('Engine: Dashboard Service was not instantiated, cannot start.');
+      }
 
       logger.info('Bot engine started successfully.');
       this.eventBus.emit('engine:started', {
@@ -183,6 +216,13 @@ class BotEngine {
     if (this.dataPersistenceService) {
         logger.info('Engine: Shutting down data persistence service...');
         await this.dataPersistenceService.shutdown();
+    }
+
+    // Stop Dashboard Service
+    logger.info('Engine: Stopping Dashboard Service...');
+    if (this.dashboardService) {
+        await this.dashboardService.stop();
+        logger.info('Engine: Dashboard Service stopped.');
     }
 
     // 1. Stop other services/strategies (Phase 2+) - Reverse order

@@ -75,6 +75,7 @@ class DataPersistenceService extends ServiceBase {
                     game_version TEXT,
                     is_rugged BOOLEAN DEFAULT 0,
                     tick_count INTEGER,
+                    house_profit_sol REAL, -- Added for house P&L per game
                     metadata TEXT
                 );
             `;
@@ -706,6 +707,33 @@ class DataPersistenceService extends ServiceBase {
         } catch (error) {
             this.logger.error(`DataPersistenceService: Error fetching all games summary: ${error.message}`, error);
             return [];
+        }
+    }
+
+    async updateGameHouseProfit(gameId, houseProfitSol) {
+        if (!this.db) {
+            this.logger.error('DataPersistenceService: Database not initialized. Cannot update game house profit.');
+            return false;
+        }
+        if (gameId === undefined || houseProfitSol === undefined) {
+            this.logger.warn('DataPersistenceService: updateGameHouseProfit called with missing gameId or houseProfitSol.', { gameId, houseProfitSol });
+            return false;
+        }
+
+        this.logger.info(`DataPersistenceService: Updating house_profit_sol for game ${gameId} to ${houseProfitSol}.`);
+        const stmt = this.db.prepare('UPDATE games SET house_profit_sol = ? WHERE game_id = ?');
+        try {
+            const info = stmt.run(houseProfitSol, gameId);
+            if (info.changes > 0) {
+                this.logger.info(`DataPersistenceService: Successfully updated house_profit_sol for game ${gameId}.`);
+                return true;
+            } else {
+                this.logger.warn(`DataPersistenceService: No game found with game_id ${gameId} to update house_profit_sol. Might be called before game record is created or gameId is incorrect.`);
+                return false;
+            }
+        } catch (error) {
+            this.logger.error(`DataPersistenceService: Failed to update house_profit_sol for game ${gameId}: ${error.message}`, error);
+            return false;
         }
     }
 

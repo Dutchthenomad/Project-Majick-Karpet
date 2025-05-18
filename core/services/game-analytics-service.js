@@ -2,6 +2,7 @@ const logger = require('../../utils/logger');
 const eventBus = require('../events/event-bus');
 const playerStateService = require('./player-state-service'); // To get game results
 const ServiceBase = require('./service-base'); // Require ServiceBase
+const dataPersistenceService = require('./data-persistence-service'); // Added to call updateGameHouseProfit
 
 /**
  * @class GameAnalyticsService
@@ -98,6 +99,21 @@ class GameAnalyticsService extends ServiceBase { // Extend ServiceBase
         const houseTakeSol = totalSolInvestedInGame - totalSolReturnedInGame;
         const gameDurationTicks = data ? data.tickCount : 'N/A';
         const finalGameMultiplier = finalPrice; // Already provided
+
+        // Update the database with the house profit for this game
+        if (dataPersistenceService) {
+            dataPersistenceService.updateGameHouseProfit(gameId, houseTakeSol)
+                .then(success => {
+                    if (success) {
+                        this.logger.info(`[GameAnalytics] Successfully recorded house_profit_sol ${houseTakeSol.toFixed(6)} for game ${gameId} in DB.`);
+                    } else {
+                        this.logger.warn(`[GameAnalytics] Failed to record house_profit_sol for game ${gameId} in DB.`);
+                    }
+                })
+                .catch(err => {
+                    this.logger.error(`[GameAnalytics] Error calling updateGameHouseProfit for game ${gameId}: ${err.message}`);
+                });
+        }
 
         logger.info('--------------------------------------------------');
         logger.info(`[GameAnalytics] Summary for Game ID: ${gameId}`);

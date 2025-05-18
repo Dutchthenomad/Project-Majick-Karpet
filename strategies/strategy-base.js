@@ -354,9 +354,11 @@ class StrategyBase {
      * @param {string} gameId - The ID of the game for the buy.
      * @param {number} amountToSpend - The amount of SOL to spend.
      * @param {string} [reason=''] - Optional reason for logging.
+     * @param {object} [options={}] - Optional parameters for execution.
+     * @param {number} [options.executionPrice] - Specific price to attempt execution at.
      * @returns {Promise<object|null>} Simulation result or null if tradeExecutor not available/inactive.
      */
-    async executeBuy(gameId, amountToSpend, reason = '') {
+    async executeBuy(gameId, amountToSpend, reason = '', options = {}) {
         const gameSpecificState = this.getGameState(gameId);
         gameSpecificState.tradesAttempted++;
 
@@ -372,14 +374,18 @@ class StrategyBase {
         // Fetch current game state reliably for both risk check and trade execution params
         const currentFullGameState = this.context.gameStateService ? this.context.gameStateService.getCurrentState() : null;
 
+        // Determine the price to use: passed executionPrice, or current game state price
+        const priceForExecution = options.executionPrice !== undefined && options.executionPrice !== null 
+                                  ? options.executionPrice 
+                                  : currentFullGameState?.price;
+
         // Pre-trade Risk Check
         this.logger.debug(`Strategy ${this.strategyId}: executeBuy - About to perform risk check. RiskManager available: ${!!(this.context && this.context.riskManagerService)}, GameStateService available: ${!!(this.context && this.context.gameStateService)}`);
         if (this.context && this.context.riskManagerService && this.context.gameStateService) {
-            // currentFullGameState is already fetched above
             this.logger.debug(`Strategy ${this.strategyId}: executeBuy - currentFullGameState for risk check: ${JSON.stringify(currentFullGameState ? { price: currentFullGameState.price, gameId: currentFullGameState.gameId, phase: this.context.gameStateService.getCurrentPhase()} : null)}`);
 
-            if (!currentFullGameState || currentFullGameState.price === undefined) {
-                this.logger.error(`Strategy ${this.strategyId}: Cannot perform risk check for BUY, current game state or price is unavailable.`);
+            if (!currentFullGameState || priceForExecution === undefined || priceForExecution === null) {
+                this.logger.error(`Strategy ${this.strategyId}: Cannot perform risk check for BUY, current game state or priceForExecution is unavailable. Price for exec: ${priceForExecution}`);
                 return { success: false, reason: 'Risk check failed: Game state/price unavailable' };
             }
 
@@ -387,7 +393,7 @@ class StrategyBase {
                 type: 'buy',
                 amountToSpendOrEvaluatedValue: amountToSpend,
                 currency: 'SOL', // Assuming SOL for buys, adjust if other currencies are used for spending
-                currentPrice: currentFullGameState.price // Pass current price for context if needed by more advanced risk rules
+                currentPrice: priceForExecution // Use priceForExecution for risk check context
             };
             this.logger.debug(`Strategy ${this.strategyId}: executeBuy - Constructed tradeParams for risk check: ${JSON.stringify(tradeParams)}`);
 
@@ -421,7 +427,7 @@ class StrategyBase {
                 amountToSpend: amountToSpend,
                 strategyName: this.strategyId, 
                 gameId: gameId, 
-                price: currentFullGameState?.price, // Pass current price to mock executor
+                price: priceForExecution, // Pass priceForExecution to trade executor
                 tickCount: currentFullGameState?.tickCount 
             });
             if (tradeResult && tradeResult.success) {

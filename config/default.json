@@ -30,6 +30,11 @@
       "maxTotalExposureSOL": 1.0,
       "maxConcurrentTradesGlobal": 20,
       "globalMaxBuyAmountSOL": 0.2
+    },
+    "presaleEntryRisk": {
+      "applySpecificLimits": true,
+      "maxTickForPresaleRisk": 20,
+      "maxBuyAmountSOL": 0.0005
     }
   },
   "webSocketClient": {
@@ -64,7 +69,7 @@
       "modulePath": "./strategies/statistical-arbitrage-v1-presale-strategy.js",
       "enabled": true,
       "config": {
-        "presaleBuyAmountSOL": 0.001,
+        "presaleBuyAmountSOL": 0.0005,
         "entryMaxTick": 5,
         "minAcceptableEntryPrice": 1.0,
         "maxAcceptableEntryPrice": 1.05,
@@ -73,6 +78,7 @@
         "targetExitMultiplier": 5.45,
         "emergencyExitTick": 220,
         "minProfitTakeMultiplier": 1.1,
+        "stopLossMultiplier": 0.15,
         "riskConfig": {
           "maxBuyAmountSOL": 0.0011,
           "maxOpenTradesPerGame": 1,

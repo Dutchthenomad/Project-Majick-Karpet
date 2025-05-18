@@ -1,0 +1,12 @@
+[
+  {
+    "id": "copyTrader_TargetPlayer",
+    "modulePath": "./strategies/copy-trader-strategy",
+    "enabled": true,
+    "config": {
+      "username": "Itsbraz",
+      "amountToSpend": 0.01,
+      "gameId": "20250516-e301228d437846ab"
+    }
+  }
+] 

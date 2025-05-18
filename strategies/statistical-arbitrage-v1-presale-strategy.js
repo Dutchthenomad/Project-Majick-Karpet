@@ -3,88 +3,83 @@ const StrategyBase = require('./strategy-base');
 /**
  * @class StatisticalArbitrageV1_PresaleStrategy
  * @description Attempts to buy in presale (or very early) and exit based on statistically derived optimal
- *              tick windows and multiplier targets.
+ *              tick windows and multiplier targets. (Simpler Version)
  */
 class StatisticalArbitrageV1_PresaleStrategy extends StrategyBase {
     constructor(strategyId, config, context) {
         super(strategyId, config, context);
-        this.strategyName = 'StatisticalArbitrageV1_PresaleStrategy';
-        this.logPrefix = `[${this.strategyId}]`; // Simplified log prefix for this strategy
+        this.strategyName = 'StatisticalArbitrageV1_PresaleStrategy'; // Original simpler name
+        this.logPrefix = `[${this.strategyId}]`;
 
-        // Validate and set default config values specific to this strategy
-        this.config.presaleBuyAmountSOL = this.config.presaleBuyAmountSOL || 0.001;
+        // Configuration for the simpler version
+        this.config.presaleBuyAmountSOL = this.config.presaleBuyAmountSOL === undefined ? 0.0005 : this.config.presaleBuyAmountSOL;
         this.config.entryMaxTick = this.config.entryMaxTick === undefined ? 5 : this.config.entryMaxTick;
         this.config.minAcceptableEntryPrice = this.config.minAcceptableEntryPrice === undefined ? 1.0 : this.config.minAcceptableEntryPrice;
         this.config.maxAcceptableEntryPrice = this.config.maxAcceptableEntryPrice === undefined ? 1.05 : this.config.maxAcceptableEntryPrice;
         
-        this.config.targetExitTickMin = this.config.targetExitTickMin || 150;
-        this.config.targetExitTickMax = this.config.targetExitTickMax || 199;
-        this.config.targetExitMultiplier = this.config.targetExitMultiplier || 5.45;
-        this.config.emergencyExitTick = this.config.emergencyExitTick || 220;
-        this.config.minProfitTakeMultiplier = this.config.minProfitTakeMultiplier || 1.1; // Min multiplier for timed window exit
+        this.config.targetExitTickMin = this.config.targetExitTickMin === undefined ? 150 : this.config.targetExitTickMin;
+        this.config.targetExitTickMax = this.config.targetExitTickMax === undefined ? 199 : this.config.targetExitTickMax;
+        this.config.targetExitMultiplier = this.config.targetExitMultiplier === undefined ? 5.45 : this.config.targetExitMultiplier;
+        this.config.emergencyExitTick = this.config.emergencyExitTick === undefined ? 220 : this.config.emergencyExitTick;
+        this.config.minProfitTakeMultiplier = this.config.minProfitTakeMultiplier === undefined ? 1.1 : this.config.minProfitTakeMultiplier;
+        this.config.stopLossMultiplier = this.config.stopLossMultiplier === undefined ? 0.15 : this.config.stopLossMultiplier; // 85% drawdown
 
-        this.logger.info(`${this.logPrefix} instance created with config: ${JSON.stringify(this.config)}`);
+        this.logger.info(`${this.logPrefix} instance (Simpler Version) created with config: ${JSON.stringify(this.config)}`);
     }
 
     async initialize() {
         await super.initialize();
-        this.logger.info(`${this.logPrefix} Initializing...`);
-        this.subscribe('game:newGame', this.handleGameChange); // Use a common handler for newGame and phaseChange to presale
-        this.subscribe('game:phaseChange', this.handleGameChange);
+        this.logger.info(`${this.logPrefix} Initializing (Simpler Version)...`);
+        this.subscribe('game:newGame', this.handleGameChange);
+        this.subscribe('game:phaseChange', this.handleGameChange); // Can use the same handler for entry logic
         this.subscribe('game:priceUpdate', this.handlePriceUpdate);
-        this.subscribe('game:rugged', this.handleGameRugged); // Base class handles report emit
-        this.logger.info(`${this.logPrefix} Subscribed to game events.`);
+        this.subscribe('game:rugged', this.handleGameRugged);
+        this.logger.info(`${this.logPrefix} Subscribed to game events (Simpler Version).`);
     }
 
     _createInitialGameState(gameId) {
         const baseState = super._createInitialGameState(gameId);
         return {
-            ...baseState, // Includes tradesAttempted, etc.
+            ...baseState,
             hasOpenPosition: false,
             entryPrice: null,
             entryTick: null,
-            // Add any other V1 specific state here
         };
     }
 
-    async handleGameChange(payload) {
+    async handleGameChange(payload) { // Combined handler for newGame and phaseChange for entry
         const gameId = payload.gameId;
         const gameSpecificState = this.getGameState(gameId);
-        if (!gameSpecificState) { 
-            this.logger.error(`${this.logPrefix} Game ${gameId} - NO gameSpecificState in handleGameChange. This is unexpected.`);
-            return;
+        if (!gameSpecificState || gameSpecificState.hasOpenPosition) {
+            return; 
         }
 
         const currentPhase = payload.currentPhase || (payload.initialState?.phase);
         const currentTick = payload.data?.tickCount !== undefined ? payload.data.tickCount : (payload.initialState?.tickCount || 0);
         const currentPrice = payload.initialState?.price !== undefined ? payload.initialState.price : (this.gameStateService ? this.gameStateService.getCurrentState()?.price : 1.0);
 
-        // Heuristic: If allowPreRoundBuys is undefined during presale, but price is ~1.0, assume true.
         let effectiveAllowPreRoundBuys = payload.initialState?.allowPreRoundBuys;
         if (currentPhase === 'presale' && effectiveAllowPreRoundBuys === undefined && currentPrice !== null && currentPrice !== undefined && Math.abs(currentPrice - 1.0) < 0.01) {
             effectiveAllowPreRoundBuys = true; 
-            this.logger.info(`${this.logPrefix} Game ${gameId} - Assuming allowPreRoundBuys for presale with price ~1.0 as it was undefined.`);
         }
 
-        this.logger.info(`${this.logPrefix} Game ${gameId} - handleGameChange EVALUATING. Phase: ${currentPhase}, AllowPreBuy: ${effectiveAllowPreRoundBuys}, Tick: ${currentTick}, Price: ${currentPrice?.toFixed(6)}, HasOpenPos: ${gameSpecificState.hasOpenPosition}`);
+        this.logger.debug(`${this.logPrefix} Game ${gameId} - handleGameChange EVAL. Phase: ${currentPhase}, AllowPreBuy: ${effectiveAllowPreRoundBuys}, Tick: ${currentTick}, Price: ${currentPrice?.toFixed(6)}, HasOpenPos: ${gameSpecificState.hasOpenPosition}`);
 
         if ((currentPhase === 'presale' && effectiveAllowPreRoundBuys === true) || 
             (currentPhase === 'active' && currentTick <= this.config.entryMaxTick)) {
-            if (!gameSpecificState.hasOpenPosition) {
-                if (currentPrice >= this.config.minAcceptableEntryPrice && currentPrice <= this.config.maxAcceptableEntryPrice) {
-                    this.logger.info(`${this.logPrefix} Game ${gameId} - Favorable entry condition. Phase: ${currentPhase}, Tick: ${currentTick}, Price: ${currentPrice.toFixed(6)}. Attempting BUY.`);
-                    const buyResult = await this.executeBuy(gameId, this.config.presaleBuyAmountSOL, 'StatArbV1_Entry');
-                    if (buyResult && buyResult.success) {
-                        gameSpecificState.hasOpenPosition = true;
-                        gameSpecificState.entryPrice = buyResult.price; 
-                        gameSpecificState.entryTick = currentTick; 
-                        this.logger.info(`${this.logPrefix} Game ${gameId} - BUY EXECUTED. Entry Price: ${buyResult.price.toFixed(6)}, Entry Tick: ${currentTick}`);
-                    } else {
-                        this.logger.warn(`${this.logPrefix} Game ${gameId} - BUY FAILED or REJECTED. Result: ${JSON.stringify(buyResult)}`);
-                    }
+            if (currentPrice >= this.config.minAcceptableEntryPrice && currentPrice <= this.config.maxAcceptableEntryPrice) {
+                this.logger.info(`${this.logPrefix} Game ${gameId} - Favorable entry condition. Phase: ${currentPhase}, Tick: ${currentTick}, Price: ${currentPrice.toFixed(6)}. Attempting BUY.`);
+                const buyResult = await this.executeBuy(gameId, this.config.presaleBuyAmountSOL, 'StatArbV1_Entry_Simple', { executionPrice: currentPrice });
+                if (buyResult && buyResult.success) {
+                    gameSpecificState.hasOpenPosition = true;
+                    gameSpecificState.entryPrice = buyResult.price; 
+                    gameSpecificState.entryTick = currentTick; 
+                    this.logger.info(`${this.logPrefix} Game ${gameId} - BUY EXECUTED. Entry Price: ${buyResult.price.toFixed(6)}, Entry Tick: ${currentTick}`);
                 } else {
-                    this.logger.info(`${this.logPrefix} Game ${gameId} - Entry price condition NOT MET. Price: ${currentPrice?.toFixed(6)} (Min: ${this.config.minAcceptableEntryPrice}, Max: ${this.config.maxAcceptableEntryPrice})`);
+                    this.logger.warn(`${this.logPrefix} Game ${gameId} - BUY FAILED or REJECTED. Result: ${JSON.stringify(buyResult)}`);
                 }
+            } else {
+                 this.logger.debug(`${this.logPrefix} Game ${gameId} - Entry price condition NOT MET. Price: ${currentPrice?.toFixed(6)} (Min: ${this.config.minAcceptableEntryPrice}, Max: ${this.config.maxAcceptableEntryPrice})`);
             }
         }
     }
@@ -106,28 +101,35 @@ class StatisticalArbitrageV1_PresaleStrategy extends StrategyBase {
         let shouldSell = false;
         let sellReason = '';
 
-        // 1. Profit Target Exit
-        if (currentMultiplier >= this.config.targetExitMultiplier && currentTick >= this.config.targetExitTickMin && currentTick <= this.config.targetExitTickMax) {
+        // Stop-Loss Check
+        if (currentMultiplier < this.config.stopLossMultiplier) {
+            shouldSell = true;
+            sellReason = `Stop-loss triggered at ${currentMultiplier.toFixed(2)}x (target < ${this.config.stopLossMultiplier}x)`;
+        }
+        // Profit Target Exit
+        else if (currentMultiplier >= this.config.targetExitMultiplier && currentTick >= this.config.targetExitTickMin && currentTick <= this.config.targetExitTickMax) {
             shouldSell = true;
             sellReason = `Profit target ${this.config.targetExitMultiplier}x reached in optimal window`;
         }
-        // 2. Optimal Window Timed Exit (with minimal profit)
-        else if (!shouldSell && currentTick >= this.config.targetExitTickMin && currentTick <= this.config.targetExitTickMax && currentMultiplier >= this.config.minProfitTakeMultiplier) {
+        // Optimal Window Timed Exit (with minimal profit)
+        else if (currentTick >= this.config.targetExitTickMin && currentTick <= this.config.targetExitTickMax && currentMultiplier >= this.config.minProfitTakeMultiplier) {
             shouldSell = true;
             sellReason = `Optimal tick window exit at ${currentMultiplier.toFixed(2)}x`;
         }
-        // 3. Emergency Time-Based Exit
-        else if (!shouldSell && currentTick > this.config.emergencyExitTick) {
+        // Emergency Time-Based Exit
+        else if (currentTick > this.config.emergencyExitTick) {
             shouldSell = true;
             sellReason = `Emergency time exit at tick ${currentTick}`;
         }
 
         if (shouldSell) {
             this.logger.info(`${this.logPrefix} Game ${gameId} - ${sellReason}. Current Multiplier: ${currentMultiplier.toFixed(2)}x, Tick: ${currentTick}. Attempting SELL.`);
-            const sellResult = await this.executeSellByPercentage(gameId, 100, `StatArbV1_Exit: ${sellReason}`);
+            const sellResult = await this.executeSellByPercentage(gameId, 100, `StatArbV1_Exit_Simple: ${sellReason}`);
             if (sellResult && sellResult.success) {
-                gameSpecificState.hasOpenPosition = false;
+                gameSpecificState.hasOpenPosition = false; // Reset position state
                 this.logger.info(`${this.logPrefix} Game ${gameId} - SELL EXECUTED for ${sellReason}.`);
+            } else {
+                this.logger.warn(`${this.logPrefix} Game ${gameId} - SELL FAILED/REJECTED for ${sellReason}. Result: ${JSON.stringify(sellResult)}`);
             }
         }
     }
@@ -136,10 +138,11 @@ class StatisticalArbitrageV1_PresaleStrategy extends StrategyBase {
         const gameId = payload.gameId;
         const gameSpecificState = this.getGameState(gameId);
         if (gameSpecificState && gameSpecificState.hasOpenPosition) {
-            this.logger.info(`${this.logPrefix} Game ${gameId} rugged with an open position. P&L will be finalized by BacktestPlayerStateService.`);
-            gameSpecificState.hasOpenPosition = false; // Mark as closed for this strategy instance
+            this.logger.info(`${this.logPrefix} Game ${gameId} rugged with an open position. P&L will be finalized by BacktestPlayerStateService/liquidation.`);
+            gameSpecificState.hasOpenPosition = false; 
         }
-        await super.onGameRugged(payload); // This handles emitting the performance report
+        // Call base class to ensure performance report is still emitted if super.onGameRugged does that
+        await super.onGameRugged(payload); 
     }
 }
 

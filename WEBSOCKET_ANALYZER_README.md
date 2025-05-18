@@ -19,15 +19,19 @@ The WebSocket Data Analyzer provides the following capabilities:
 You can access the WebSocket analyzer tools in multiple ways:
 
 1. **From Main Menu**:
+
    ```
    node main.js
    ```
+
    Then select "WebSocket Data Analyzer (for reverse engineering)" from the menu.
 
 2. **Direct Dashboard**:
+
    ```
    node ws_dashboard.js
    ```
+
    This launches the dashboard directly at http://localhost:3002
 
 3. **Command-line Tool**:
@@ -106,4 +110,4 @@ The data files are in JSON format, making them easy to process with other analys
 
 ## Notes
 
-This toolkit is designed for educational and research purposes only. Use responsibly and in accordance with website terms of service. 
+This toolkit is designed for educational and research purposes only. Use responsibly and in accordance with website terms of service.

@@ -44,41 +44,29 @@ import {
  * @returns {Promise<import('puppeteer-core').Browser | null>} Browser object or null on failure.
  */
 export async function connectToBrowser() {
-    logger.info('Attempting to connect to browser...');
+    logger.info('Attempting to connect to pre-launched browser on ws://127.0.0.1:9222...');
     try {
         const browser = await puppeteer.connect({
             browserURL: 'http://127.0.0.1:9222', // Standard remote debugging port
             defaultViewport: VIEWPORT,
             protocolTimeout: 60000,
         });
-        logger.info('Successfully connected to existing browser instance.');
+        logger.info('Successfully connected to pre-launched browser instance.');
         return browser;
     } catch (error) {
-        logger.warn('Could not connect to existing browser instance. Attempting to launch new one...');
-        try {
-            const browser = await puppeteer.launch({
-                executablePath: CHROME_EXECUTABLE_PATH,
-                headless: false, // Run in non-headless mode to see the browser
-                userDataDir: USER_DATA_DIR, // Optional: Use if you want persistence/logged-in state
-                defaultViewport: VIEWPORT,
-                protocolTimeout: 60000,
-                args: [
-                    `--remote-debugging-port=9222`, // Ensure debugging port is open
-                    `--window-size=${VIEWPORT.width},${VIEWPORT.height}`
-                    // Add other args if needed
-                ]
-            });
-            logger.info('Successfully launched new browser instance.');
-            // Wait a moment for the browser to fully initialize
-            await wait(2000);
-            return browser;
-        } catch (launchError) {
-            logger.error('Failed to launch new browser instance:', launchError);
-            logger.error('Please ensure Chrome is installed at the specified path and that port 9222 is available.');
-            logger.error('You might need to close existing Chrome instances or run Chrome manually with:');
-            logger.error(`"${CHROME_EXECUTABLE_PATH}" --remote-debugging-port=9222`);
-            return null;
-        }
+        logger.error('-----------------------------------------------------------------------------');
+        logger.error('CRITICAL: Failed to connect to pre-launched Chrome instance on port 9222!');
+        logger.error('Please ensure you have manually started Chrome with remote debugging enabled:');
+        logger.error('Example PowerShell:');
+        logger.error('Start-Process "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" -ArgumentList @("--remote-debugging-port=9222", "--user-data-dir=YOUR_USER_DATA_PATH", "--profile-directory=YOUR_PROFILE")');
+        logger.error(`Attempted to connect to: http://127.0.0.1:9222`);
+        logger.error(`Error details: ${error.message}`);
+        logger.error('The application cannot continue without a browser connection.');
+        logger.error('-----------------------------------------------------------------------------');
+        // Option 1: Return null, main.js has to check for it - We chose to throw.
+        // return null; 
+        // Option 2: Throw error, main.js has to catch it (more explicit failure)
+        throw new Error('Failed to connect to pre-launched Chrome. See logs for details.');
     }
 }
 

@@ -20,6 +20,7 @@ class RiskManagerService extends ServiceBase {
         super('RiskManagerService', options, dependencies);
         // configService can be obtained from getConfig directly if not injected via dependencies
         this.globalRiskLimits = getConfig('riskManagement.globalLimits', {});
+        this.presaleRiskConfig = getConfig('riskManagement.presaleEntryRisk', { applySpecificLimits: false, maxTickForPresaleRisk: 0, maxBuyAmountSOL: Infinity }); // Load presale risk config
         this.strategyRiskConfigs = new Map(); // strategyId -> validatedRiskConfig
         this.activeExposure = {
             totalCapitalAtRisk: 0,
@@ -34,6 +35,11 @@ class RiskManagerService extends ServiceBase {
             logger.warn('RiskManagerService: Global risk limits are not configured or found!');
         } else {
             logger.info(`RiskManagerService: Loaded global risk limits: ${JSON.stringify(this.globalRiskLimits)}`);
+        }
+        if (!this.presaleRiskConfig.applySpecificLimits) {
+            logger.info('RiskManagerService: Presale-specific entry risk limits are disabled.');
+        } else {
+            logger.info(`RiskManagerService: Loaded presale-specific entry risk limits: ${JSON.stringify(this.presaleRiskConfig)}`);
         }
         this._loadActiveExposure(); // Call load on construction or in initialize
     }
@@ -248,6 +254,18 @@ class RiskManagerService extends ServiceBase {
 
         // --- Buy Order Checks ---
         if (type === 'buy') {
+            // 0. Presale/Early Entry Specific Risk Limit Check
+            if (this.presaleRiskConfig.applySpecificLimits && 
+                currentGameState && 
+                currentGameState.tickCount <= this.presaleRiskConfig.maxTickForPresaleRisk) {
+                if (amountToSpendOrEvaluatedValue > this.presaleRiskConfig.maxBuyAmountSOL) {
+                    const reason = `Buy amount ${amountToSpendOrEvaluatedValue.toFixed(6)} ${currency} exceeds presale/early entry limit of ${this.presaleRiskConfig.maxBuyAmountSOL.toFixed(6)} (tick ${currentGameState.tickCount} <= ${this.presaleRiskConfig.maxTickForPresaleRisk}).`;
+                    this.logger.warn(`RiskManager: ${reason} for ${strategyId}`);
+                    this._emitRiskEvent('risk:limitReached', strategyId, 'presaleMaxBuyAmountSOL', tradeParams, reason, currentGameState);
+                    return { isApproved: false, reason };
+                }
+            }
+
             // 1. Strategy-Specific Limits for Buys
             if (amountToSpendOrEvaluatedValue > (strategyLimits.maxBuyAmountSOL || Infinity)) {
                 const reason = `Buy amount ${amountToSpendOrEvaluatedValue.toFixed(6)} ${currency} exceeds strategy limit of ${strategyLimits.maxBuyAmountSOL.toFixed(6)}.`;

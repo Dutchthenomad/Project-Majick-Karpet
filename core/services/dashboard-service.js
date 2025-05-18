@@ -19,6 +19,8 @@ class DashboardService extends ServiceBase {
     this.state = {
       currentGameId: null,
       gameState: null,
+      currentTickCount: 0,
+      currentPrice: null,
       housePosition: {
         totalBets: 0,
         totalAmount: 0,
@@ -43,6 +45,9 @@ class DashboardService extends ServiceBase {
   setupEventListeners() {
     // Listen for game state updates
     this.eventBus.on('game:stateUpdate', this.handleGameStateUpdate.bind(this));
+    
+    // Listen for price updates (which include tick counts)
+    this.eventBus.on('game:priceUpdate', this.handlePriceUpdate.bind(this));
     
     // Listen for trades
     this.eventBus.on('game:trade', this.handleTradeEvent.bind(this));
@@ -115,6 +120,24 @@ class DashboardService extends ServiceBase {
     
     // Emit update to all connected clients
     this.emitDashboardUpdate();
+  }
+  
+  /**
+   * Handle price updates, which include tick counts
+   * @param {Object} priceUpdateData
+   */
+  handlePriceUpdate(priceUpdateData) {
+    if (priceUpdateData && typeof priceUpdateData.tickCount !== 'undefined') {
+      this.state.currentTickCount = priceUpdateData.tickCount;
+      this.state.currentPrice = priceUpdateData.price;
+
+      if (this.state.gameState && priceUpdateData.gameId === this.state.gameState.gameId) {
+        this.state.gameState.price = priceUpdateData.price;
+        this.state.gameState.tickCount = priceUpdateData.tickCount;
+      }
+
+      this.emitDashboardUpdate();
+    }
   }
   
   /**

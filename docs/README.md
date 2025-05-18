@@ -18,9 +18,11 @@ This project provides tools for analyzing the house edge and market mechanics in
 2. Extract all files to a directory
 3. Open a terminal/command prompt in that directory
 4. Install dependencies:
+
 ```
 npm install
 ```
+
 5. Make sure you have a Chromium-based browser installed (Chrome/Brave) that the tracker can connect to
 
 ## Running the Terminal Tracker
@@ -34,6 +36,7 @@ npm run track
 This will start the tracker in your terminal, connecting to the game and displaying real-time information.
 
 Controls:
+
 - Press `Q` to exit
 - Press `R` to reset statistics
 - Press `D` to view data summary
@@ -49,6 +52,7 @@ npm run simple
 ```
 
 This will start a local web server on port 3001. Open your web browser and navigate to:
+
 ```
 http://localhost:3001
 ```
@@ -62,6 +66,7 @@ npm run dashboard
 ```
 
 This will start a local web server on port 3000. Open your web browser and navigate to:
+
 ```
 http://localhost:3000
 ```
@@ -75,6 +80,7 @@ npm start
 ```
 
 The bot works by:
+
 1. Connecting to the game via a browser window
 2. Monitoring WebSocket messages for game state and player positions
 3. Calculating the house position in real-time
@@ -86,12 +92,14 @@ You'll need to log into your Phantom wallet when prompted before the bot can ope
 ### Customizing Bot Strategy
 
 You can modify the trading strategy by editing these files:
+
 - `strategy3_refined.js` - Contains the core trading logic
 - `config.js` - Contains settings for minimum/maximum bet sizes and thresholds
 
 ## Game Theory Documentation
 
 See the included `GAME_THEORY.md` file for a comprehensive analysis of:
+
 - Core game mechanics and parameters
 - Market manipulation theories
 - Case studies of actual games
@@ -103,7 +111,7 @@ This document provides the theoretical foundation for the tracking and signal ge
 ## Project Components
 
 - `house_tracker.js` - Core tracking functionality
-- `tracker_only.js` - Terminal UI for the tracker 
+- `tracker_only.js` - Terminal UI for the tracker
 - `simple_dashboard.js` - Web-based dashboard (port 3001)
 - `house_dashboard.js` - Full-featured dashboard (port 3000)
 - `main.js` - Main bot entry point
@@ -135,4 +143,4 @@ This data is maintained in memory during the session and can be viewed in the da
 - **Port in use**: If you see errors about port 3000 or 3001 being in use, change the port in the respective dashboard JS file
 - **Browser connection**: Make sure Chrome/Brave is installed and not running in a way that blocks debugging connections
 - **Websocket errors**: Ensure you have a stable internet connection
-- **Display issues**: For terminal UI, ensure your terminal supports Unicode and colors 
+- **Display issues**: For terminal UI, ensure your terminal supports Unicode and colors

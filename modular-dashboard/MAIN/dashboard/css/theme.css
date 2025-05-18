@@ -1,0 +1,42 @@
+:root {
+    /* Color System */
+    --bg-color: #121212;
+    --card-bg: #1e1e1e;
+    --text-color: #f0f0f0;
+    --text-secondary: #a0a0a0;
+    --accent-color: #6200ea;
+    --success-color: #00c853;
+    --warning-color: #ffd600;
+    --danger-color: #ff3d00;
+    --info-color: #2196f3;
+    
+    /* Typography */
+    --font-primary: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+    --font-size-large: 2.5rem;
+    --font-size-heading: 1.2rem;
+    --font-size-normal: 0.95rem;
+    --font-size-small: 0.85rem;
+    
+    /* Spacing & Layout */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+    --border-radius: 8px;
+    --widget-header-height: 46px;
+    
+    /* Transitions */
+    --transition-speed: 0.2s;
+  }
+  
+  /* Dark Theme */
+  body {
+    color: var(--text-color);
+    background-color: var(--bg-color);
+    font-family: var(--font-primary);
+    margin: 0;
+    padding: 0;
+    transition: background-color var(--transition-speed);
+  }

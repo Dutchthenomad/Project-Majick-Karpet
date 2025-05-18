@@ -1,0 +1,99 @@
+.dashboard-container {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  
+  .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-md);
+    background-color: var(--card-bg);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    height: 60px;
+  }
+  
+  .dashboard-header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 500;
+  }
+  
+  .connection-status {
+    display: flex;
+    align-items: center;
+    font-size: var(--font-size-small);
+  }
+  
+  .connection-status span#status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: var(--space-sm);
+    background-color: var(--warning-color);
+  }
+  
+  .connection-status span#status-indicator.connected {
+    background-color: var(--success-color);
+  }
+  
+  .connection-status span#status-indicator.disconnected {
+    background-color: var(--danger-color);
+  }
+  
+  .dashboard-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-auto-rows: minmax(min-content, max-content);
+    gap: var(--space-md);
+    padding: var(--space-md);
+    overflow-y: auto;
+  }
+  
+  /* Widget size classes */
+  .widget.full-width {
+    grid-column: span 12;
+  }
+  
+  .widget.half-width {
+    grid-column: span 6;
+  }
+  
+  .widget.third-width {
+    grid-column: span 4;
+  }
+  
+  /* Responsive adjustments */
+  @media (max-width: 1200px) {
+    .widget.third-width {
+      grid-column: span 6;
+    }
+  }
+  
+  @media (max-width: 768px) {
+    .dashboard-grid {
+      grid-template-columns: repeat(6, 1fr);
+    }
+    
+    .widget.half-width,
+    .widget.third-width {
+      grid-column: span 6;
+    }
+  }
+  
+  @media (max-width: 576px) {
+    .dashboard-grid {
+      grid-template-columns: repeat(1, 1fr);
+      padding: var(--space-sm);
+    }
+    
+    .widget.half-width,
+    .widget.third-width,
+    .widget.full-width {
+      grid-column: span 1;
+    }
+  }

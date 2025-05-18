@@ -336,123 +336,163 @@
     }
     
     // Update the dashboard with new state
-    socket.on('tracker-update', (state) => {
+    function updateDashboard(state) {
       // Update Game State
       const gameStatus = document.getElementById('game-status');
-      gameStatus.textContent = state.gameState.gameStatus;
-      gameStatus.className = 'status-' + state.gameState.gameStatus.toLowerCase();
+      if (state.gameState && state.gameState.gameStatus) { // Check if gameState and gameStatus exist
+        gameStatus.textContent = state.gameState.gameStatus;
+        gameStatus.className = 'status-' + state.gameState.gameStatus.toLowerCase();
+      } else {
+        gameStatus.textContent = 'N/A';
+        gameStatus.className = 'status-pending';
+      }
       
-      document.getElementById('game-id').textContent = 'ID: ' + (state.gameState.currentGameId || 'N/A');
-      document.getElementById('game-tick').textContent = 'Tick: ' + state.gameState.currentTick;
-      document.getElementById('game-index').textContent = 'Index: ' + state.gameState.currentIndex;
+      document.getElementById('game-id').textContent = 'ID: ' + (state.currentGameId || 'N/A'); // Use state.currentGameId
+      document.getElementById('game-tick').textContent = 'Tick: ' + (typeof state.currentTickCount !== 'undefined' ? state.currentTickCount : 'N/A'); // Use state.currentTickCount
       
-      // Update Price
-      document.getElementById('current-price').textContent = state.gameState.currentPrice.toFixed(4) + 'x';
+      // Ensure gameState exists before accessing its properties
+      if (state.gameState) {
+        document.getElementById('game-index').textContent = 'Index: ' + (state.gameState.currentIndex || 'N/A');
+        // Update Price - use state.currentPrice
+        document.getElementById('current-price').textContent = typeof state.currentPrice !== 'undefined' && state.currentPrice !== null ? state.currentPrice.toFixed(4) + 'x' : 'N/A';
+      } else {
+        document.getElementById('game-index').textContent = 'Index: N/A';
+        document.getElementById('current-price').textContent = 'N/A';
+      }
       
-      // Update House Position
-      const houseSol = document.getElementById('house-sol');
-      houseSol.textContent = (state.housePosition.position >= 0 ? '+' : '') + state.housePosition.position.toFixed(6);
-      houseSol.className = state.housePosition.winning ? 'house-positive' : (state.housePosition.losing ? 'house-negative' : 'house-neutral');
+      // Update House Position - ensure housePosition exists
+      if (state.housePosition) {
+        const houseSol = document.getElementById('house-sol');
+        houseSol.textContent = (state.housePosition.position >= 0 ? '+' : '') + (state.housePosition.position !== undefined ? state.housePosition.position.toFixed(6) : '0.000000');
+        houseSol.className = state.housePosition.winning ? 'house-positive' : (state.housePosition.losing ? 'house-negative' : 'house-neutral');
+        
+        const houseEdge = document.getElementById('house-edge');
+        houseEdge.textContent = state.housePosition.winning ? 'WINNING' : (state.housePosition.losing ? 'LOSING' : 'EVEN');
+        houseEdge.className = state.housePosition.winning ? 'house-positive' : (state.housePosition.losing ? 'house-negative' : 'house-neutral');
+      }
       
-      const houseEdge = document.getElementById('house-edge');
-      houseEdge.textContent = state.housePosition.winning ? 'WINNING' : (state.housePosition.losing ? 'LOSING' : 'EVEN');
-      houseEdge.className = state.housePosition.winning ? 'house-positive' : (state.housePosition.losing ? 'house-negative' : 'house-neutral');
+      // Update Liquidity - ensure liquidity exists
+      if (state.liquidity) {
+        document.getElementById('liquidity-players').textContent = state.liquidity.players !== undefined ? state.liquidity.players : '0';
+        document.getElementById('liquidity-value').textContent = state.liquidity.totalValue !== undefined ? state.liquidity.totalValue.toFixed(3) : '0.000';
       
-      // Update Liquidity
-      document.getElementById('liquidity-players').textContent = state.liquidity.players;
-      document.getElementById('liquidity-value').textContent = state.liquidity.totalValue.toFixed(3);
-      
-      // Update Rug Risk
-      const rugRiskContainer = document.getElementById('rug-risk-container');
-      rugRiskContainer.innerHTML = '';
-      if (state.maxLiability > 0.05) {
-        const rugRiskPercent = Math.min(100, (state.liquidity.totalValue / state.maxLiability) * 100);
-        if (rugRiskPercent > 70) {
-          rugRiskContainer.innerHTML = '<div class="rug-risk risk-high">Rug Risk: ' + rugRiskPercent.toFixed(0) + '%</div>';
-        } else if (rugRiskPercent > 40) {
-          rugRiskContainer.innerHTML = '<div class="rug-risk risk-medium">Rug Risk: ' + rugRiskPercent.toFixed(0) + '%</div>';
+        // Update Rug Risk
+        const rugRiskContainer = document.getElementById('rug-risk-container');
+        rugRiskContainer.innerHTML = ''; // Clear previous risk
+        if (state.maxLiability > 0.05 && state.liquidity.totalValue !== undefined) { // check totalValue
+          const rugRiskPercent = Math.min(100, (state.liquidity.totalValue / state.maxLiability) * 100);
+          if (rugRiskPercent > 70) {
+            rugRiskContainer.innerHTML = '<div class="rug-risk risk-high">Rug Risk: ' + rugRiskPercent.toFixed(0) + '%</div>';
+          } else if (rugRiskPercent > 40) {
+            rugRiskContainer.innerHTML = '<div class="rug-risk risk-medium">Rug Risk: ' + rugRiskPercent.toFixed(0) + '%</div>';
+          }
         }
       }
       
-      // Update Price Chart
-      priceData = state.priceHistory;
-      priceChart.data.datasets[0].data = priceData;
-      priceChart.update();
-      
-      // Update Signals
-      const housePosPerc = state.signals.housePositionPercent || 0;
-      const priceTrendPerc = state.signals.priceTrendPercent || 0;
-      
-      document.getElementById('house-position-percent').textContent = (housePosPerc >= 0 ? '+' : '') + housePosPerc.toFixed(1) + '%';
-      document.getElementById('price-trend-percent').textContent = (priceTrendPerc >= 0 ? '+' : '') + priceTrendPerc.toFixed(1) + '%';
-      
-      const houseBar = document.getElementById('house-bar');
-      houseBar.style.width = Math.min(100, Math.abs(housePosPerc)) + '%';
-      houseBar.className = housePosPerc >= 0 ? 'progress-fill-positive' : 'progress-fill-negative';
-      
-      const priceBar = document.getElementById('price-bar');
-      priceBar.style.width = Math.min(100, Math.abs(priceTrendPerc)) + '%';
-      priceBar.className = priceTrendPerc >= 0 ? 'progress-fill-positive' : 'progress-fill-negative';
-      
-      const signalContainer = document.getElementById('signal-container');
-      const signalText = document.getElementById('signal-text');
-      
-      if (state.signals.buySignal) {
-        signalContainer.className = 'signal-buy';
-        signalText.textContent = state.signals.buySignal.message;
-      } else if (state.signals.sellSignal) {
-        signalContainer.className = 'signal-sell';
-        signalText.textContent = state.signals.sellSignal.message;
-      } else {
-        signalContainer.className = 'signal-none';
-        signalText.textContent = 'No strong signal.';
+      // Update Price Chart - ensure priceHistory exists
+      if (state.priceHistory && priceChart) { // also check if priceChart is initialized
+        priceData = state.priceHistory;
+        priceChart.data.datasets[0].data = priceData;
+        priceChart.update();
       }
       
-      // Update Active Prediction
+      // Update Signals - ensure signals object exists
+      if (state.signals) {
+        const housePosPerc = state.signals.housePositionPercent || 0;
+        const priceTrendPerc = state.signals.priceTrendPercent || 0;
+        
+        document.getElementById('house-position-percent').textContent = (housePosPerc >= 0 ? '+' : '') + housePosPerc.toFixed(1) + '%';
+        document.getElementById('price-trend-percent').textContent = (priceTrendPerc >= 0 ? '+' : '') + priceTrendPerc.toFixed(1) + '%';
+        
+        const houseBar = document.getElementById('house-bar');
+        houseBar.style.width = Math.min(100, Math.abs(housePosPerc)) + '%';
+        houseBar.className = housePosPerc >= 0 ? 'progress-fill-positive' : 'progress-fill-negative';
+        
+        const priceBar = document.getElementById('price-bar');
+        priceBar.style.width = Math.min(100, Math.abs(priceTrendPerc)) + '%';
+        priceBar.className = priceTrendPerc >= 0 ? 'progress-fill-positive' : 'progress-fill-negative';
+        
+        const signalContainer = document.getElementById('signal-container');
+        const signalText = document.getElementById('signal-text');
+        
+        if (state.signals.buySignal) {
+          signalContainer.className = 'signal-buy';
+          signalText.textContent = state.signals.buySignal.message;
+        } else if (state.signals.sellSignal) {
+          signalContainer.className = 'signal-sell';
+          signalText.textContent = state.signals.sellSignal.message;
+        } else {
+          signalContainer.className = 'signal-none';
+          signalText.textContent = 'No strong signal.';
+        }
+      }
+      
+      // Update Active Prediction - ensure activePrediction exists
       const predictionContainer = document.getElementById('prediction-container');
-      predictionContainer.innerHTML = '';
+      predictionContainer.innerHTML = ''; // Clear previous
       if (state.activePrediction) {
         const pred = state.activePrediction;
         let predHtml = '<div class="prediction">';
-        predHtml += 'Active Prediction: ' + pred.type.toUpperCase() + ' @ ' + pred.entryPrice.toFixed(3) + 'x (Tick ' + pred.entryTick + ')';
+        predHtml += 'Active Prediction: ' + pred.type.toUpperCase() + ' @ ' + (pred.entryPrice !== undefined ? pred.entryPrice.toFixed(3) : 'N/A') + 'x (Tick ' + (pred.entryTick !== undefined ? pred.entryTick : 'N/A') + ')';
         if (pred.type === 'buy') {
-          predHtml += ' Target: ≥' + pred.targetPriceUp.toFixed(3) + 'x';
+          predHtml += ' Target: ≥' + (pred.targetPriceUp !== undefined ? pred.targetPriceUp.toFixed(3) : 'N/A') + 'x';
         } else {
-          predHtml += ' Target: ≤' + pred.targetPriceDown.toFixed(3) + 'x';
+          predHtml += ' Target: ≤' + (pred.targetPriceDown !== undefined ? pred.targetPriceDown.toFixed(3) : 'N/A') + 'x';
         }
         predHtml += '</div>';
         predictionContainer.innerHTML = predHtml;
       }
       
-      // Update Correlation Stats
-      const buySuccessRate = state.correlationStats.buyAttempts > 0 ? 
-        (state.correlationStats.buySuccess / state.correlationStats.buyAttempts * 100).toFixed(0) : '0';
-      const sellSuccessRate = state.correlationStats.sellAttempts > 0 ? 
-        (state.correlationStats.sellSuccess / state.correlationStats.sellAttempts * 100).toFixed(0) : '0';
+      // Update Correlation Stats - ensure correlationStats exists
+      if (state.correlationStats) {
+        const buySuccessRate = state.correlationStats.buyAttempts > 0 ? 
+          (state.correlationStats.buySuccess / state.correlationStats.buyAttempts * 100).toFixed(0) : '0';
+        const sellSuccessRate = state.correlationStats.sellAttempts > 0 ? 
+          (state.correlationStats.sellSuccess / state.correlationStats.sellAttempts * 100).toFixed(0) : '0';
+        
+        document.getElementById('buy-stats').textContent = (state.correlationStats.buySuccess !== undefined ? state.correlationStats.buySuccess : '0') + '/' + (state.correlationStats.buyAttempts !== undefined ? state.correlationStats.buyAttempts : '0') + ' (' + buySuccessRate + '%)';
+        document.getElementById('sell-stats').textContent = (state.correlationStats.sellSuccess !== undefined ? state.correlationStats.sellSuccess : '0') + '/' + (state.correlationStats.sellAttempts !== undefined ? state.correlationStats.sellAttempts : '0') + ' (' + sellSuccessRate + '%)';
+      }
       
-      document.getElementById('buy-stats').textContent = state.correlationStats.buySuccess + '/' + state.correlationStats.buyAttempts + ' (' + buySuccessRate + '%)';
-      document.getElementById('sell-stats').textContent = state.correlationStats.sellSuccess + '/' + state.correlationStats.sellAttempts + ' (' + sellSuccessRate + '%)';
-      
-      // Update Trades
+      // Update Trades - ensure recentTrades exists and is an array
       const tradesContainer = document.getElementById('trades-container');
-      tradesContainer.innerHTML = '';
-      state.recentTrades.forEach(trade => {
-        const tradeEl = document.createElement('div');
-        tradeEl.className = 'trade-item';
-        
-        if (trade.includes('BUY')) {
-          tradeEl.classList.add('trade-buy');
-        } else if (trade.includes('SELL')) {
-          tradeEl.classList.add('trade-sell');
-        }
-        
-        tradeEl.textContent = trade
-          .replace('{green-fg}', '')
-          .replace('{red-fg}', '')
-          .replace('{/}', '');
-        
-        tradesContainer.appendChild(tradeEl);
-      });
+      tradesContainer.innerHTML = ''; // Clear previous trades
+      if (state.recentTrades && Array.isArray(state.recentTrades)) {
+        state.recentTrades.forEach(trade => {
+          const tradeEl = document.createElement('div');
+          tradeEl.className = 'trade-item';
+          
+          // Ensure trade is a string before calling .includes
+          if (typeof trade === 'string') {
+            if (trade.includes('BUY')) {
+              tradeEl.classList.add('trade-buy');
+            } else if (trade.includes('SELL')) {
+              tradeEl.classList.add('trade-sell');
+            }
+            tradeEl.textContent = trade
+              .replace('{green-fg}', '')
+              .replace('{red-fg}', '')
+              .replace('{/}', '');
+          } else {
+            // Handle cases where trade might not be a string (e.g., log an error or display differently)
+            tradeEl.textContent = 'Invalid trade data';
+            console.warn('Received non-string trade data:', trade);
+          }
+          tradesContainer.appendChild(tradeEl);
+        });
+      }
+    }
+
+    // Listen for initial state when client connects
+    socket.on('dashboard:state', (state) => {
+      console.log('Received initial dashboard state:', state);
+      updateDashboard(state);
+    });
+
+    // Listen for subsequent updates
+    socket.on('dashboard:update', (state) => {
+      // console.log('Received dashboard update:', state); // Optional: for debugging frequent updates
+      updateDashboard(state);
     });
     
     // Fetch and display statistics

@@ -98,6 +98,10 @@ async function runBatchBacktests(numGamesToTest = 10, strategyIdToTest = null) {
             ? strategiesConfig.find(s => s.id === strategyIdToTest && s.enabled)
             : strategiesConfig.find(s => s.enabled); // Default to first enabled if not specified
 
+        // ---- ADDED DEBUG LOG ----
+        logger.info('DEBUG: Just before error check, targetStrategyConfig is:', targetStrategyConfig ? targetStrategyConfig.id : 'null or undefined');
+        // ---- END ADDED DEBUG LOG ----
+
         if (!targetStrategyConfig) {
             logger.error(`Strategy ID '${strategyIdToTest || 'any enabled'}' not found or not enabled.`);
             await engine.stop(); return;

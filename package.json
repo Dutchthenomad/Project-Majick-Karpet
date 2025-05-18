@@ -7,7 +7,11 @@
     "start": "node main.js",
     "track": "node tracker_only.js",
     "dashboard": "node house_dashboard.js",
-    "simple": "node simple_dashboard.js"
+    "simple": "node simple_dashboard.js",
+    "analytics": "node analytics_dashboard.js",
+    "test-data": "node test-dashboard-data.js",
+    "simple-dash": "node simple-dashboard.js",
+    "live": "node live-rugs-dashboard.js"
   },
   "author": "",
   "license": "ISC",

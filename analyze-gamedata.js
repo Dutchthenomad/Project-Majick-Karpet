@@ -2,6 +2,39 @@ const logger = require('./utils/logger');
 const BotEngine = require('./core/engine');
 const { getConfig, getAllConfig } = require('./config/config-service');
 
+/**
+ * Calculates percentiles for a sorted array of numbers.
+ * @param {number[]} sortedArr - The sorted array of numbers.
+ * @param {number[]} percentiles - Array of percentiles to calculate (e.g., [25, 50, 75, 90]).
+ * @returns {object} Object with percentile keys and their values.
+ */
+function calculatePercentiles(sortedArr, percentilesToCalc = [25, 50, 75, 90, 95]) {
+    const results = {};
+    if (!sortedArr || sortedArr.length === 0) return results;
+
+    percentilesToCalc.forEach(p => {
+        if (p <= 0 || p >= 100) return; // Invalid percentile
+        const index = (p / 100) * (sortedArr.length - 1);
+        if (Number.isInteger(index)) {
+            results[`p${p}`] = sortedArr[index];
+        } else {
+            // Linear interpolation for non-integer indices
+            const lowerIndex = Math.floor(index);
+            const upperIndex = Math.ceil(index);
+            const fraction = index - lowerIndex;
+            if (upperIndex < sortedArr.length) {
+                 results[`p${p}`] = sortedArr[lowerIndex] + (sortedArr[upperIndex] - sortedArr[lowerIndex]) * fraction;
+            } else { // Handle edge case if upperIndex is out of bounds
+                 results[`p${p}`] = sortedArr[lowerIndex];
+            }
+        }
+        if (results[`p${p}`] && typeof results[`p${p}`].toFixed === 'function') {
+            results[`p${p}`] = parseFloat(results[`p${p}`].toFixed(4));
+        }
+    });
+    return results;
+}
+
 async function performAnalysis() {
     logger.info('===== Starting Game Data Analysis =====');
     const engine = new BotEngine(getAllConfig());
@@ -37,17 +70,27 @@ async function performAnalysis() {
         } else {
             logger.info(`Analyzing based on ${ruggedGames.length} recent rugged games (tick > ${minTickCountForAnalysis}).`);
 
-            // 1. Average Tick Length
-            const totalTicks = ruggedGames.reduce((sum, game) => sum + game.tick_count, 0);
+            // 1. Game Length (Ticks) Analysis
+            const tickCounts = ruggedGames.map(g => g.tick_count).sort((a, b) => a - b);
+            const totalTicks = tickCounts.reduce((sum, ticks) => sum + ticks, 0);
             const averageTickLength = totalTicks / ruggedGames.length;
-            logger.info(`Average Tick Length: ${averageTickLength.toFixed(2)} ticks`);
+            const tickPercentiles = calculatePercentiles(tickCounts);
+            logger.info(`--- Game Length (Ticks) ---`);
+            logger.info(`Average: ${averageTickLength.toFixed(2)} ticks`);
+            logger.info(`Min: ${tickCounts[0]}, Max: ${tickCounts[tickCounts.length - 1]}`);
+            logger.info(`Percentiles: ${JSON.stringify(tickPercentiles)}`);
 
-            // 2. Average Peak Multiplier
+            // 2. Peak Multiplier Analysis
             const validPeakGames = ruggedGames.filter(g => g.peak_multiplier !== null && g.peak_multiplier > 0);
             if (validPeakGames.length > 0) {
-                const totalPeakMultiplier = validPeakGames.reduce((sum, game) => sum + game.peak_multiplier, 0);
+                const peakMultipliers = validPeakGames.map(g => g.peak_multiplier).sort((a, b) => a - b);
+                const totalPeakMultiplier = peakMultipliers.reduce((sum, mult) => sum + mult, 0);
                 const averagePeakMultiplier = totalPeakMultiplier / validPeakGames.length;
-                logger.info(`Average Peak Multiplier (for ${validPeakGames.length} games with peak data): ${averagePeakMultiplier.toFixed(4)}x`);
+                const peakPercentiles = calculatePercentiles(peakMultipliers);
+                logger.info(`--- Peak Multiplier (for ${validPeakGames.length} games with peak data) ---`);
+                logger.info(`Average: ${averagePeakMultiplier.toFixed(4)}x`);
+                logger.info(`Min: ${peakMultipliers[0].toFixed(4)}, Max: ${peakMultipliers[peakMultipliers.length - 1].toFixed(4)}`);
+                logger.info(`Percentiles: ${JSON.stringify(peakPercentiles)}`);
             } else {
                 logger.info('No games with peak multiplier data found in the rugged sample.');
             }
@@ -90,14 +133,48 @@ async function performAnalysis() {
                 const bucketEnd = i + bucketSize -1;
                 
                 const gamesReachingBucket = ruggedGames.filter(g => g.tick_count >= bucketStart);
-                if (gamesReachingBucket.length === 0) continue; // No games even reached this bucket start
+                if (gamesReachingBucket.length === 0 && i > 0) { // Stop if no games reach this bucket (unless it's the first bucket)
+                    logger.debug(`No games reached tick bucket [${bucketStart}-${bucketEnd}], stopping bucket analysis.`);
+                    break;
+                } 
+                if (gamesReachingBucket.length === 0 && i === 0) {
+                    logger.info(`Ticks [${bucketStart}-${bucketEnd}]: Reached: 0, Rugged in bucket: 0, Rug Prob if reached: N/A%`);
+                    continue;
+                }
 
-                const gamesRuggedInBucket = gamesReachingBucket.filter(g => g.tick_count <= bucketEnd).length; // g.is_rugged is already true for ruggedGames
+                const gamesRuggedInBucket = gamesReachingBucket.filter(g => g.tick_count <= bucketEnd).length; 
                 
                 const rugProbInBucket = (gamesRuggedInBucket / gamesReachingBucket.length) * 100;
                 logger.info(`Ticks [${bucketStart}-${bucketEnd}]: Reached: ${gamesReachingBucket.length}, Rugged in bucket: ${gamesRuggedInBucket}, Rug Prob if reached: ${rugProbInBucket.toFixed(2)}%`);
             }
             logger.info('-----------------------------------------');
+
+            // 6. Initial Trade Volume & Large Trade Analysis (New)
+            logger.info('--- Initial Trade Volume Analysis (per game, for actual trades) --- ');
+            for (const game of ruggedGames.slice(0, getConfig('analysis.tradeAnalysisGameSample', 10))) { // Analyze first few games for brevity
+                const tradesInGame = await dataPersistenceService.getTradesForGame(game.game_id, { isSimulated: 0 });
+                if (tradesInGame.length > 0) {
+                    const solTrades = tradesInGame.filter(t => (t.currency_sold === 'SOL' || t.currency_received === 'SOL'));
+                    const totalSolVolume = solTrades.reduce((sum, t) => sum + (t.amount_currency || 0), 0);
+                    const largeTradeThresholdSOL = getConfig('analysis.largeTradeThresholdSOL', 0.1);
+                    const largeTrades = solTrades.filter(t => (t.amount_currency || 0) >= largeTradeThresholdSOL);
+                    const uniquePlayers = new Set(tradesInGame.map(t => t.player_id));
+
+                    logger.info(`Game ${game.game_id} (Ticks: ${game.tick_count}, Peak: ${game.peak_multiplier?.toFixed(2)}x, Rug: ${game.rug_price?.toFixed(2)}x):`);
+                    logger.info(`  Total Actual Trades: ${tradesInGame.length}, Unique Players: ${uniquePlayers.size}`);
+                    logger.info(`  Total SOL Volume: ${totalSolVolume.toFixed(4)} SOL`);
+                    logger.info(`  Number of Large Trades (>=${largeTradeThresholdSOL} SOL): ${largeTrades.length}`);
+                    if (largeTrades.length > 0) {
+                        // Log top 1-2 large trades for example
+                        largeTrades.slice(0,2).forEach(lt => {
+                            logger.info(`    Large Trade Example: Player ${lt.player_id?.substring(0,10)}... ${lt.action} ${lt.amount_tokens.toFixed(4)} tokens for ${lt.amount_currency.toFixed(4)} SOL @ tick ${lt.tick}`);
+                        });
+                    }
+                } else {
+                    logger.info(`Game ${game.game_id}: No actual trades found in DB for analysis.`);
+                }
+            }
+            logger.info('-----------------------------------------------------------------');
         }
 
         // TODO for next steps: Add queries/analysis for House P&L (requires GameAnalytics data in DB)
