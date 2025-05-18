@@ -434,4 +434,4 @@ _(Detailed CREATE TABLE statements as previously outlined will be implemented in
 > **Collaboration Note:**
 > For optimal results, all collaborators—including agentic AI assistants—should consult `PROJECT_MEMORY.md` for a concise summary of the current architecture, priorities, and context.
 
-_This README will be updated as the project progresses._
+*This README will be updated as the project progresses.* 
